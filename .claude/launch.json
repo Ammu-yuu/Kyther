@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "osint-api",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "cd /Users/anya/Documents/osint-orchestrator && exec .venv/bin/python -m uvicorn osint.api:app --host 127.0.0.1 --port 8099"
+      ],
+      "port": 8099
+    }
+  ]
+}
