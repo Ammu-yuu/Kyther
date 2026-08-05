@@ -9,18 +9,23 @@ Endpoints:
 """
 from __future__ import annotations
 
+import asyncio
+import math
+import time
+from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from .core import registry
-from .core.entities import Entity, EntityType, Finding, detect_type
+from .core.entities import Confidence, Entity, EntityType, Finding, RiskScore, detect_type
 from .core.orchestrator import scan
+from .report import Report
 
 app = FastAPI(title="Kyther", version="0.1.0")
 
@@ -64,6 +69,94 @@ _CATEGORY = {
     "http_probe": "infrastructure",
     "ip_geo": "infrastructure",
 }
+
+# Default trust level per analyzer — same pattern as _CATEGORY. This is the
+# fallback: an analyzer can override per-finding (Finding.confidence) when the
+# right level depends on the data (e.g. EmailRep). Anything unlisted -> PROBABLE.
+_CONFIDENCE = {
+    # authoritative / control-verified -> CONFIRMED
+    "dns": Confidence.CONFIRMED,
+    "rdap": Confidence.CONFIRMED,
+    "crtsh": Confidence.CONFIRMED,
+    "http_probe": Confidence.CONFIRMED,
+    "ip_geo": Confidence.CONFIRMED,
+    "shodan_internetdb": Confidence.CONFIRMED,
+    "phone_intel": Confidence.CONFIRMED,     # offline libphonenumber
+    "hibp": Confidence.CONFIRMED,            # authoritative breach source
+    "github_emails": Confidence.CONFIRMED,   # read straight from commit metadata
+    "email_basic": Confidence.CONFIRMED,     # a Gravatar hit is a real account
+    "profile_enrich": Confidence.CONFIRMED,  # structured API profile data
+    "username": Confidence.CONFIRMED,        # WhatsMyName positive-match + control-probe
+    # strong-but-not-authoritative -> PROBABLE
+    "holehe": Confidence.PROBABLE,
+    "hunter": Confidence.PROBABLE,
+    "sec_edgar": Confidence.PROBABLE,        # name/entity correlation
+    "emailrep": Confidence.PROBABLE,
+    # scraped / loose -> POSSIBLE
+    "sherlock": Confidence.POSSIBLE,         # HTTP status-code only
+    "search_dorks": Confidence.POSSIBLE,     # generated leads, not verified hits
+}
+_DEFAULT_CONFIDENCE = Confidence.PROBABLE
+
+
+def _confidence_for(f: Finding) -> Confidence:
+    """Explicit per-finding value wins; otherwise fall back to the central map."""
+    if f.confidence is not None:
+        return f.confidence
+    return _CONFIDENCE.get(f.analyzer, _DEFAULT_CONFIDENCE)
+
+
+# ── Risk scoring ────────────────────────────────────────────────────────────
+_SENSITIVITY = {"phone": 10, "address": 9, "email": 6, "username": 3, "social": 1}
+_CONF_MULT = {"confirmed": 1.0, "probable": 0.6, "possible": 0.2}
+
+
+def _risk_tier(s: int) -> str:
+    return "Critical" if s >= 75 else "High" if s >= 50 else "Medium" if s >= 25 else "Low"
+
+
+def _build_risk(findings: list[dict], dossier: dict, seed: dict) -> RiskScore:
+    """Quantified exposure = Σ(sensitivity × confidence) + log breadth + scaled bonuses."""
+    factors: list[tuple[str, float]] = []
+
+    # PII exposures — counted once per type, at full (confirmed) weight when present.
+    if dossier.get("emails"):
+        factors.append(("Email address exposed", _SENSITIVITY["email"] * _CONF_MULT["confirmed"]))
+    if seed["type"] == "phone" or any(f["analyzer"] == "phone_intel" for f in findings):
+        factors.append(("Phone number exposed", _SENSITIVITY["phone"] * _CONF_MULT["confirmed"]))
+    if seed["type"] == "username":
+        factors.append(("Username publicly linkable", _SENSITIVITY["username"] * _CONF_MULT["confirmed"]))
+
+    # Account breadth — dedupe by host, keep the best confidence, weight, log-scale.
+    best: dict[str, str] = {}
+    for f in findings:
+        if f["category"] != "accounts":
+            continue
+        for p in f["data"].get("profiles", []):
+            host = urlsplit(p["url"]).netloc.replace("www.", "") or p["url"]
+            c = p.get("confidence", "possible")
+            if _CONF_MULT.get(c, 0) > _CONF_MULT.get(best.get(host, ""), -1):
+                best[host] = c
+    eff = sum(_CONF_MULT[c] for c in best.values())
+    if eff:
+        factors.append((f"Account footprint ({len(best)} sites)", 5 * math.log(1 + eff)))
+
+    # Bonuses — confidence-scaled, to stay consistent with the rest of the model.
+    breach = next((f for f in findings
+                   if f["category"] == "breaches"
+                   or (f["analyzer"] == "emailrep" and f["data"].get("data_breach"))), None)
+    if breach:
+        factors.append(("Email found in a data breach", 15 * _CONF_MULT[breach["confidence"]]))
+    if dossier.get("primary_name") and dossier.get("locations"):
+        factors.append(("Real-name deanonymization (name + location)", 15.0))
+
+    score = min(100, round(sum(p for _, p in factors)))
+    top3 = sorted(factors, key=lambda x: -x[1])[:3]
+    return RiskScore(
+        score=score,
+        tier=_risk_tier(score),
+        factors=[{"label": lbl, "points": round(p, 1)} for lbl, p in top3],
+    )
 
 
 def _build_timeline(findings: list[Finding]) -> list[dict]:
@@ -204,6 +297,7 @@ def _finding_dict(f: Finding) -> dict:
         "title": f.title,
         "severity": str(f.severity),
         "category": _CATEGORY.get(f.analyzer, "other"),
+        "confidence": str(_confidence_for(f)),
         "data": f.data,
     }
 
@@ -213,18 +307,25 @@ async def index() -> FileResponse:
     return FileResponse(WEB_DIR / "index.html")
 
 
+_NEWS_CACHE: dict = {"ts": 0.0, "data": []}
+_NEWS_TTL = 3600  # 1 hour
+
+
 @app.get("/api/news")
 async def news() -> list[dict]:
-    """Live security news for the feed (Hacker News, keyless)."""
+    """Live security news for the feed (Hacker News, keyless). Cached for 1 hour."""
+    now = time.time()
+    if _NEWS_CACHE["data"] and now - _NEWS_CACHE["ts"] < _NEWS_TTL:
+        return _NEWS_CACHE["data"]
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.get(
                 "https://hn.algolia.com/api/v1/search_by_date",
-                params={"tags": "story", "query": "security", "hitsPerPage": "20"},
+                params={"tags": "story", "query": "security", "hitsPerPage": "30"},
             )
             hits = (r.json() or {}).get("hits", [])
     except Exception:
-        return []
+        return _NEWS_CACHE["data"]  # serve stale cache on error, or [] if never fetched
     out = []
     for h in hits:
         title = h.get("title")
@@ -233,7 +334,9 @@ async def news() -> list[dict]:
         url = h.get("url") or f"https://news.ycombinator.com/item?id={h.get('objectID')}"
         source = urlsplit(url).netloc.replace("www.", "") or "ycombinator.com"
         out.append({"title": title, "source": source, "url": url, "ts": h.get("created_at_i")})
-    return out[:12]
+    out = out[:15]
+    _NEWS_CACHE.update(ts=now, data=out)
+    return out
 
 
 @app.get("/api/analyzers")
@@ -251,21 +354,47 @@ async def list_analyzers() -> list[dict]:
     ]
 
 
-@app.post("/api/scan")
-async def run_scan(req: ScanRequest) -> dict:
+async def _perform_scan(req: ScanRequest) -> dict:
+    """Run a scan and assemble the full response dict (shared by /scan and /report)."""
     etype = EntityType(req.type) if req.type != "auto" else detect_type(req.target)
     seed = Entity.make(etype, req.target)
     result = await scan(seed, max_depth=req.depth)
 
+    seed_out = {"type": str(seed.type), "value": seed.value, "key": seed.key}
+    findings_out = [_finding_dict(f) for f in result.findings]
+    dossier = _build_dossier(result.findings)
+    # Risk scoring runs after the dossier — it needs the fused name/email/location
+    # plus the confidence-tagged findings and the seed's type.
+    dossier["risk"] = asdict(_build_risk(findings_out, dossier, seed_out))
+
     return {
-        "seed": {"type": str(seed.type), "value": seed.value, "key": seed.key},
+        "seed": seed_out,
         "entities": [
             {"type": str(e.type), "value": e.value, "key": e.key, "source": e.source}
             for e in result.entities.values()
         ],
-        "findings": [_finding_dict(f) for f in result.findings],
+        "findings": findings_out,
         "timeline": _build_timeline(result.findings),
-        "dossier": _build_dossier(result.findings),
+        "dossier": dossier,
         "graph": _build_graph(seed, result),
         "errors": result.errors,
     }
+
+
+@app.post("/api/scan")
+async def run_scan(req: ScanRequest) -> dict:
+    return await _perform_scan(req)
+
+
+@app.post("/api/report")
+async def make_report(req: ScanRequest) -> Response:
+    """Run a scan and return a professional PDF report."""
+    scan_dict = await _perform_scan(req)
+    # reportlab is synchronous/CPU-bound — keep it off the event loop.
+    pdf = await asyncio.to_thread(Report(scan_dict).generate)
+    fname = f"kyther-{scan_dict['seed']['type']}-report.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )

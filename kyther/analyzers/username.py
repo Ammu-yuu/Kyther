@@ -71,7 +71,9 @@ class UsernameAnalyzer(Analyzer):
                 ({"platform": s["name"],
                   "url": s["uri_check"].replace("{account}", entity.value),
                   "category": s.get("cat"),
-                  "nsfw": "nsfw" in (s.get("cat") or "").lower()} for s in confirmed),
+                  "nsfw": "nsfw" in (s.get("cat") or "").lower(),
+                  # control-probe verified positive match -> trust it
+                  "confidence": "confirmed"} for s in confirmed),
                 key=lambda f: f["platform"].lower(),
             )
             discarded = len(hits) - len(confirmed)

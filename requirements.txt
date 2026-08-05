@@ -5,3 +5,4 @@ fastapi>=0.110
 uvicorn>=0.29
 phonenumbers>=8.13
 holehe
+reportlab>=4.0

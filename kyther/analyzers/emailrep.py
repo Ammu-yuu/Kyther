@@ -8,7 +8,7 @@ EMAILREP_API_KEY is set (free keys available at emailrep.io).
 from __future__ import annotations
 
 from ..core.base import Analyzer
-from ..core.entities import AnalyzerResult, Entity, EntityType, Finding, Severity
+from ..core.entities import AnalyzerResult, Confidence, Entity, EntityType, Finding, Severity
 from ..core.registry import register
 from ._http import client
 
@@ -31,6 +31,9 @@ class EmailRep(Analyzer):
             d = resp.json()
 
         details = d.get("details") or {}
+        # Data-dependent confidence: a breach/suspicious flag is a strong signal
+        # (PROBABLE); a clean reputation record is only a weak association (POSSIBLE).
+        flagged = bool(d.get("suspicious") or details.get("data_breach"))
         result.findings.append(
             Finding(
                 self.name, entity,
@@ -45,6 +48,7 @@ class EmailRep(Analyzer):
                     "data_breach": details.get("data_breach"),
                 },
                 severity=Severity.HIGH if d.get("suspicious") else Severity.INFO,
+                confidence=Confidence.PROBABLE if flagged else Confidence.POSSIBLE,
             )
         )
         return result

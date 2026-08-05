@@ -109,6 +109,34 @@ class Severity(str, Enum):
         return self.value
 
 
+class Confidence(str, Enum):
+    """How much to trust a finding — coarse buckets, never a fake percentage.
+
+    CONFIRMED  authoritative source (DNS/RDAP, a real API profile, WhatsMyName's
+               control-verified match, HIBP) or several sources corroborating.
+    PROBABLE   a strong-but-not-authoritative signal (Holehe hit, Hunter, a
+               name/entity correlation, EmailRep flagged).
+    POSSIBLE   a weak signal (Sherlock's HTTP-status-code-only match, a single
+               loose hit) — treat as a lead to verify.
+    """
+
+    CONFIRMED = "confirmed"
+    PROBABLE = "probable"
+    POSSIBLE = "possible"
+
+    def __str__(self) -> str:
+        return self.value
+
+    @property
+    def rank(self) -> int:
+        return {"possible": 0, "probable": 1, "confirmed": 2}[self.value]
+
+    @classmethod
+    def best(cls, *values: "Confidence") -> "Confidence":
+        """Highest confidence among several — e.g. when two sources agree."""
+        return max(values, key=lambda c: c.rank)
+
+
 @dataclass
 class Finding:
     """A single fact learned about an entity."""
@@ -118,6 +146,9 @@ class Finding:
     title: str
     data: dict[str, Any] = field(default_factory=dict)
     severity: Severity = Severity.INFO
+    # Left None so the central map in api.py resolves it; an analyzer may set it
+    # explicitly when confidence depends on the data (see EmailRep below).
+    confidence: Confidence | None = None
 
 
 @dataclass
@@ -144,3 +175,12 @@ class ScanResult:
             return False
         self.entities[entity.key] = entity
         return True
+
+
+@dataclass
+class RiskScore:
+    """Quantified exposure assessment for a scanned subject (0–100)."""
+
+    score: int
+    tier: str  # "Critical" | "High" | "Medium" | "Low"
+    factors: list  # [{"label": str, "points": float}] — top drivers, for explainability

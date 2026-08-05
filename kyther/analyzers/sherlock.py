@@ -75,7 +75,9 @@ class Sherlock(Analyzer):
                     claimed = _status_ok(resp.status_code) and (not err_url or err_url not in str(resp.url))
 
                 if claimed:
-                    found.append({"platform": name, "url": url, "category": "other", "nsfw": False})
+                    # status-code / message match only, no control probe -> a lead
+                    found.append({"platform": name, "url": url, "category": "other",
+                                  "nsfw": False, "confidence": "possible"})
 
             async def guarded(item) -> None:
                 async with sem:

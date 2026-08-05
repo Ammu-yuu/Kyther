@@ -75,13 +75,27 @@
   #qval::placeholder{color:var(--dim);opacity:.7;}
   #qgo{background:#211d29;border:1px solid var(--border);border-radius:6px;color:var(--primary);font-weight:500;padding:0 22px;cursor:pointer;font-family:var(--mono);font-size:12.5px;}
   #qgo:hover{border-color:#3a3444;} #qgo:disabled{opacity:.5;cursor:progress;}
+  .qs-report{display:flex;align-items:center;gap:12px;margin-top:12px;}
+  #reportBtn{background:transparent;border:1px solid #7c5ba6;border-radius:6px;color:#c4a7e7;font-family:var(--mono);font-size:12.5px;padding:9px 16px;cursor:pointer;transition:.12s;}
+  #reportBtn:hover:not(:disabled){background:#211d29;border-color:#bfa4e4;color:var(--primary);}
+  #reportBtn:disabled{opacity:.4;cursor:not-allowed;border-color:var(--border);color:var(--dim);}
+  .report-status{font-size:12px;color:var(--dim);}
+  .report-status.ok{color:var(--green);} .report-status.err{color:var(--dot-r);} .report-status.busy{color:#c4a7e7;}
 
   /* Stats */
-  .stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:20px;}
   .stat{padding:16px 17px;}
   .stat .n{font-size:27px;font-weight:700;line-height:1;margin-top:9px;color:var(--primary);}
   .stat .n.green{color:var(--green);} .stat .n.yellow{color:var(--dot-y);} .stat .n.red{color:var(--dot-r);}
   .stat .foot{color:var(--dim);font-size:11px;margin-top:9px;}
+  /* Risk tile (full width, below the 3 stat tiles) */
+  .risk-tile{margin-top:12px;}
+  .risk-main{font-size:23px;font-weight:700;line-height:1;margin-top:9px;color:var(--dim);}
+  .risk-factors{margin-top:13px;}
+  .risk-factors .rf-label{font-size:10.5px;letter-spacing:.13em;color:var(--dim);text-transform:uppercase;margin-bottom:7px;}
+  .risk-factors .rf{display:flex;gap:10px;font-size:12.5px;color:var(--output);padding:2px 0;}
+  .risk-factors .rf .lbl{color:var(--primary);}
+  .risk-factors .rf .pts{margin-left:auto;color:var(--dim);font-variant-numeric:tabular-nums;}
 
   /* Log */
   .log{margin-top:20px;padding:16px;}
@@ -159,6 +173,10 @@
           <input id="qval" placeholder="enter value..." autocomplete="off" spellcheck="false" />
           <button id="qgo">Search</button>
         </div>
+        <div class="qs-report">
+          <button id="reportBtn" disabled>↓ Generate Report (PDF)</button>
+          <span id="reportStatus" class="report-status"></span>
+        </div>
       </div>
 
       <!-- Stats -->
@@ -166,7 +184,11 @@
         <div class="panel stat"><div class="plabel">Targets Scanned</div><div class="n" id="stScanned">0</div><div class="foot">this session</div></div>
         <div class="panel stat"><div class="plabel">Profiles Found</div><div class="n" id="stFound">0</div><div class="foot">total accounts</div></div>
         <div class="panel stat"><div class="plabel">Success Rate</div><div class="n green" id="stRate">—</div><div class="foot">hit rate</div></div>
-        <div class="panel stat"><div class="plabel">Threat Level</div><div class="n green" id="stThreat">LOW</div><div class="foot" id="stThreatFoot">nominal</div></div>
+      </div>
+      <div class="panel stat risk-tile">
+        <div class="plabel">Threat Level</div>
+        <div class="risk-main" id="riskMain">—</div>
+        <div class="risk-factors" id="riskFactors"><span class="foot">no scan yet</span></div>
       </div>
 
       <!-- Log -->
@@ -188,7 +210,7 @@
 const API=location.protocol.startsWith("http")?"":"http://127.0.0.1:8099";
 const $=s=>document.querySelector(s);
 const term=$("#term"), cmdIn=$("#cmd");
-let TYPE="username", busy=false;
+let TYPE="username", busy=false, LAST_SEARCH=null;
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 function put(html,cls){ const d=document.createElement("div"); d.className="line "+(cls||""); d.innerHTML=html; term.appendChild(d); term.scrollTop=term.scrollHeight; return d; }
@@ -206,9 +228,18 @@ function renderStats(){
   $("#stScanned").textContent=stats.scanned;
   $("#stFound").textContent=stats.found.toLocaleString();
   $("#stRate").textContent=stats.scanned?Math.round(stats.hits/stats.scanned*100*10)/10+"%":"—";
-  const t=$("#stThreat"); t.textContent=stats.threat;
-  t.className="n "+({LOW:"green",MEDIUM:"yellow",HIGH:"red"}[stats.threat]||"green");
-  $("#stThreatFoot").textContent={LOW:"nominal",MEDIUM:"elevated",HIGH:"critical"}[stats.threat]||"nominal";
+  renderRisk();
+}
+function renderRisk(){
+  const r=stats.risk, main=$("#riskMain"), fac=$("#riskFactors");
+  if(!r){ main.textContent="—"; main.style.color="var(--dim)"; fac.innerHTML='<span class="foot">no scan yet</span>'; return; }
+  // RED for Critical/High, YELLOW for Medium, GREEN for Low
+  const col = (r.tier==="Critical"||r.tier==="High") ? "var(--dot-r)"
+            : r.tier==="Medium" ? "var(--dot-y)" : "var(--green)";
+  main.style.color=col;
+  main.textContent=`${r.tier} (${r.score}/100)`;
+  fac.innerHTML='<div class="rf-label">Top factors</div>' +
+    (r.factors||[]).map(f=>`<div class="rf"><span class="lbl">• ${esc(f.label)}</span><span class="pts">${f.points}</span></div>`).join("");
 }
 function renderLog(){
   const el=$("#logList");
@@ -237,6 +268,9 @@ async function runSearch(type,value){
     running.remove();
     renderResult(d,secs);
     updateFromResult(d,type,value);
+    LAST_SEARCH={type,value};                 // remember what to report on
+    $("#reportBtn").disabled=false;
+    $("#reportStatus").className="report-status"; $("#reportStatus").textContent="";
   }catch(e){
     running.remove();
     put(`<span class="err">[x] scan failed: ${esc(e.message)}</span>`);
@@ -248,7 +282,19 @@ async function runSearch(type,value){
   }
 }
 
-function dedupe(profiles){ const seen=new Set(); return profiles.filter(p=>{let h;try{h=new URL(p.url).hostname.replace(/^www\./,"")}catch{h=p.url} if(seen.has(h))return false;seen.add(h);return true;}); }
+const CONF_RANK={possible:0,probable:1,confirmed:2};
+function dedupe(profiles){
+  // Merge duplicate sites by host, keeping the BEST confidence — so a WhatsMyName
+  // CONFIRMED isn't shadowed by a Sherlock POSSIBLE for the same site, whatever order.
+  const by=new Map();
+  for(const p of profiles){
+    let h; try{h=new URL(p.url).hostname.replace(/^www\./,"")}catch{h=p.url}
+    const prev=by.get(h);
+    if(!prev){ by.set(h,{...p}); }
+    else if((CONF_RANK[p.confidence]??-1)>(CONF_RANK[prev.confidence]??-1)){ prev.confidence=p.confidence; }
+  }
+  return [...by.values()];
+}
 
 function renderResult(d,secs){
   const seed=d.seed;
@@ -257,6 +303,14 @@ function renderResult(d,secs){
   const dos=d.dossier||{}; const breaches=cat("breaches").reduce((n,f)=>n+((f.data.breaches||[]).length),0);
 
   put(`<span class="ok">[ok]</span> <span class="info">scan complete —</span> <span class="val">${esc(seed.value)}</span> <span class="info">(${esc(seed.type)}) [${secs}s]</span>`);
+
+  const risk=dos.risk;
+  if(risk){
+    const RC={Critical:"#f87171",High:"#f87171",Medium:"#c2a24f",Low:"#5fd88f"};
+    const col=RC[risk.tier]||"#9d8fb0";
+    put(`<span style="color:${col}">[risk] ${risk.score}/100 · ${esc(risk.tier)}</span>`);
+    (risk.factors||[]).forEach(f=>put(`    <span class="kv">→ ${esc(f.label)}</span> <span class="info">+${f.points}</span>`));
+  }
 
   if(dos.primary_name){
     const bits=[dos.primary_name, ...(dos.locations||[]).slice(0,1), ...(dos.companies||[]).slice(0,1)];
@@ -284,7 +338,7 @@ function updateFromResult(d,type,value){
   const breaches=d.findings.filter(f=>f.category==="breaches").reduce((a,f)=>a+((f.data.breaches||[]).length),0);
   const hit=n>0||!!(d.dossier&&d.dossier.primary_name)||d.findings.length>0;
   stats.scanned++; if(hit)stats.hits++; stats.found+=n;
-  stats.threat=breaches?"HIGH":(n>40?"MEDIUM":"LOW");
+  stats.risk = (d.dossier && d.dossier.risk) || stats.risk || null;
   store.set("kyther_stats",stats); renderStats();
   addLog(type,value,hit?`${n} accounts`:"no hits");
 }
@@ -313,6 +367,32 @@ $("#qsBtns").addEventListener("click",e=>{ const b=e.target.closest(".qs-btn"); 
 $("#qgo").addEventListener("click",()=>{ const v=$("#qval").value; $("#qval").value=""; runSearch(TYPE,v); });
 $("#qval").addEventListener("keydown",e=>{ if(e.key==="Enter"){ const v=$("#qval").value; $("#qval").value=""; runSearch(TYPE,v); } });
 $("#logClear").addEventListener("click",()=>{ log=[]; store.set("kyther_log",log); renderLog(); });
+
+// ---- Generate Report: re-scans the last target and downloads a PDF ----
+let reportBusy=false;
+async function generateReport(){
+  if(!LAST_SEARCH || reportBusy) return;
+  reportBusy=true;
+  const btn=$("#reportBtn"), st=$("#reportStatus");
+  btn.disabled=true; st.className="report-status busy";
+  st.textContent="Generating report… (runs a fresh scan, ~30–60s)";
+  try{
+    const r=await fetch(API+"/api/report",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({target:LAST_SEARCH.value,type:LAST_SEARCH.type,depth:1})});
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.detail?JSON.stringify(e.detail):"HTTP "+r.status); }
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url; a.download=`kyther-${LAST_SEARCH.type}-report.pdf`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 5000);
+    st.className="report-status ok"; st.textContent=`✓ Downloaded kyther-${LAST_SEARCH.type}-report.pdf`;
+  }catch(e){
+    st.className="report-status err"; st.textContent="✗ Report failed: "+e.message;
+  }finally{
+    reportBusy=false; btn.disabled=false;
+  }
+}
+$("#reportBtn").addEventListener("click", generateReport);
 
 function ago(ts){ if(!ts)return""; const s=Date.now()/1000-ts; if(s<3600)return Math.round(s/60)+"m"; if(s<86400)return Math.round(s/3600)+"h"; return Math.round(s/86400)+"d"; }
 async function loadNews(){
