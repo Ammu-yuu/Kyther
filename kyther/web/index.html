@@ -55,6 +55,10 @@
   .match{color:var(--pink);}                 /* match tags — the only accent in output */
   .term-body a.match{border-bottom:1px dotted #f472b644;}
   .term-body a.match:hover{border-bottom-style:solid;}
+  .term-body .expander{color:var(--pink);cursor:pointer;border-bottom:1px dotted #f472b644;}
+  .term-body .expander:hover{border-bottom-style:solid;}
+  .term-body a.unv-link{color:var(--dim);border-bottom:1px dotted var(--dim);}
+  .term-body a.unv-link:hover{color:var(--output);}
   .prompt-line{display:flex;align-items:center;gap:9px;padding:10px 16px;border-top:1px solid var(--border);}
   .prompt-line .chev{color:var(--pink);}
   #cmd{flex:1;background:transparent;border:0;outline:0;color:var(--primary);font-family:var(--mono);font-size:13px;caret-color:var(--pink);}
@@ -211,6 +215,14 @@ const API=location.protocol.startsWith("http")?"":"http://127.0.0.1:8099";
 const $=s=>document.querySelector(s);
 const term=$("#term"), cmdIn=$("#cmd");
 let TYPE="username", busy=false, LAST_SEARCH=null;
+// Toggle the collapsed "unverified accounts" list when its expander is clicked.
+term.addEventListener("click",e=>{
+  const ex=e.target.closest(".expander"); if(!ex) return;
+  const el=document.getElementById(ex.dataset.t); if(!el) return;
+  const showing=el.style.display!=="none";
+  el.style.display=showing?"none":"inline";
+  ex.textContent=(showing?"show ":"hide ")+ex.dataset.n+(showing?" ▸":" ▾");
+});
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 function put(html,cls){ const d=document.createElement("div"); d.className="line "+(cls||""); d.innerHTML=html; term.appendChild(d); term.scrollTop=term.scrollHeight; return d; }
@@ -320,12 +332,24 @@ function renderResult(d,secs){
     put(`<span class="plus">[+]</span> <span class="kv">email:</span> <span class="val">${esc(e.email)}</span>${e.noreply?' <span class="info">(noreply)</span>':""}`));
 
   if(accounts.length){
-    put(`<span class="plus">[+]</span> <span class="kv">${accounts.length} accounts found</span>`);
-    const g={}; accounts.forEach(p=>{const k=(p.category||"other").replace(/xx/gi,"").trim()||"other"; (g[k]=g[k]||[]).push(p);});
-    Object.entries(g).sort((a,b)=>b[1].length-a[1].length).slice(0,7).forEach(([c,ps])=>{
-      const names=ps.slice(0,10).map(p=>`<a class="match" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.platform)}</a>`).join(" ");
-      put(`    <span class="kv">${esc(c)}:</span> ${names}${ps.length>10?` <span class="info">+${ps.length-10}</span>`:""}`);
-    });
+    const conf=accounts.filter(p=>(p.confidence||"possible")==="confirmed");
+    const unv=accounts.filter(p=>(p.confidence||"possible")!=="confirmed");
+    put(`<span class="plus">[+]</span> <span class="kv">${accounts.length} accounts — </span><span class="ok">${conf.length} verified</span><span class="kv"> · </span><span class="info">${unv.length} unverified</span>`);
+    // Verified (control-checked): show ALL, grouped, as clickable profile links.
+    if(conf.length){
+      const g={}; conf.forEach(p=>{const k=(p.category||"other").replace(/xx/gi,"").trim()||"other"; (g[k]=g[k]||[]).push(p);});
+      Object.entries(g).sort((a,b)=>b[1].length-a[1].length).forEach(([c,ps])=>{
+        const names=ps.map(p=>`<a class="match" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.platform)}</a>`).join(" ");
+        put(`    <span class="kv">${esc(c)}:</span> ${names}`);
+      });
+    }
+    // Unverified (status-code guesses — many 404): dimmed, collapsed, expandable.
+    if(unv.length){
+      const id="unv_"+Math.random().toString(36).slice(2,9);
+      put(`    <span class="info">unverified (status-code guesses — some don't exist): </span><a class="expander" data-t="${id}" data-n="${unv.length}">show ${unv.length} ▸</a>`);
+      const links=unv.map(p=>`<a href="${esc(p.url)}" target="_blank" rel="noopener" class="unv-link">${esc(p.platform)}</a>`).join(" ");
+      put(`<span id="${id}" style="display:none">      ${links}</span>`);
+    }
   }
   cat("infrastructure").slice(0,4).forEach(f=>put(`<span class="plus">[+]</span> <span class="kv">${esc(f.analyzer)}:</span> <span class="val">${esc(f.title)}</span>`));
   const tl=(d.timeline||[]).length; if(tl) put(`<span class="plus">[+]</span> <span class="kv">timeline:</span> <span class="val">${tl} dated events</span>`);

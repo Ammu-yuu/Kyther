@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import secrets
 from pathlib import Path
 
@@ -24,6 +25,21 @@ _SITES = json.loads(
 )["sites"]
 _CONCURRENCY = 60
 _PER_SITE_TIMEOUT = 6.0
+
+# A resolved detection URL that points at a machine API/search endpoint rather
+# than a human-facing profile page. A few WhatsMyName sites (e.g. HudsonRock,
+# "Mastodon API") only expose such an endpoint, so linking a "found account" to
+# it drops the user on raw JSON — the account isn't a page you can visit. We
+# skip these from the profile list; they're detection-only services, not
+# reachable profiles.
+_API_ENDPOINT_RE = re.compile(
+    r"(?:^https?://api\.)|(?:/api/)|(?:/graphql)|(?:/oembed)|(?:[?&]format=json\b)",
+    re.IGNORECASE,
+)
+
+
+def _is_api_endpoint(url: str) -> bool:
+    return bool(_API_ENDPOINT_RE.search(url))
 
 
 @register
@@ -67,16 +83,26 @@ class UsernameAnalyzer(Analyzer):
             confirmed = [s for s in await asyncio.gather(*(verify(s) for s in hits)) if s]
 
         if confirmed:
-            profiles = sorted(
-                ({"platform": s["name"],
-                  "url": s["uri_check"].replace("{account}", entity.value),
-                  "category": s.get("cat"),
-                  "nsfw": "nsfw" in (s.get("cat") or "").lower(),
-                  # control-probe verified positive match -> trust it
-                  "confidence": "confirmed"} for s in confirmed),
-                key=lambda f: f["platform"].lower(),
-            )
+            # uri_pretty is the human-facing profile page; uri_check is often an
+            # API endpoint used only for detection. Prefer the profile, and drop
+            # any hit whose only reachable URL is a raw API/search endpoint —
+            # linking there just shows JSON, not a visitable account.
+            candidates = []
+            for s in confirmed:
+                url = (s.get("uri_pretty") or s["uri_check"]).replace("{account}", entity.value)
+                if _is_api_endpoint(url):
+                    continue
+                candidates.append({
+                    "platform": s["name"],
+                    "url": url,
+                    "category": s.get("cat"),
+                    "nsfw": "nsfw" in (s.get("cat") or "").lower(),
+                    # control-probe verified positive match -> trust it
+                    "confidence": "confirmed",
+                })
+            profiles = sorted(candidates, key=lambda f: f["platform"].lower())
             discarded = len(hits) - len(confirmed)
+        if confirmed and profiles:
             note = f"Found on {len(profiles)} of {len(_SITES)} platforms"
             if discarded:
                 note += f" ({discarded} unreliable dropped)"
