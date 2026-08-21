@@ -8,7 +8,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![FastAPI](https://img.shields.io/badge/api-FastAPI-009688)
-![Analyzers](https://img.shields.io/badge/analyzers-18-bfa4e4)
+![Analyzers](https://img.shields.io/badge/analyzers-19-bfa4e4)
 ![Status](https://img.shields.io/badge/status-active-5fd88f)
 
 </div>
@@ -16,8 +16,10 @@
 Seed Kyther with an entity — a **username, email, domain, IP, phone, person, or
 company** — and it runs every compatible analyzer concurrently, then *pivots* on
 what it discovers (username → email → domain, domain → IPs → ASNs, …) up to a
-configurable depth. That entity-correlation loop is what makes it an
-orchestrator rather than a one-shot lookup — all behind a terminal-style console.
+configurable depth. It fuses the results into a single dossier, scores the
+subject's exposure, and can export a professional PDF report. That
+entity-correlation loop is what makes it an orchestrator rather than a one-shot
+lookup — all behind a terminal-style console.
 
 ![Kyther console](docs/kyther.png)
 
@@ -26,11 +28,27 @@ orchestrator rather than a one-shot lookup — all behind a terminal-style conso
 ## ✦ Features
 
 - **Terminal console** — `search --username <x>` (or `--email`, `--domain`, `--ip`, `--phone`), with `help` and `clear`; results stream back as colored terminal output.
-- **18 analyzers, one engine** — username sweeps, profile enrichment, email discovery, breach checks, infra recon, phone intel, and more — merged and deduplicated.
+- **19 analyzers, one engine** — username sweeps, profile enrichment, email discovery, breach checks, infra recon, phone intel, Reddit OSINT, and more — merged and deduplicated.
 - **Entity pivoting** — a discovered email is re-scanned, a domain expands to its IPs and ASNs, correlated into one result.
-- **Live dashboard** — targets scanned, profiles found, success rate, and a threat level that reacts to breaches/accounts found.
-- **Persistent search log** + a **Hacker News security feed**.
-- **Safety built in** — an SSRF guard blocks private/metadata targets; opt-in heavy analyzers are off by default.
+- **Confidence-tagged findings** — every result is `confirmed` / `probable` / `possible`, so a status-code guess never masquerades as fact.
+- **Risk scoring** — a 0–100 exposure score with a `Low → Critical` tier and its top driving factors, weighted by sensitivity **and** confidence.
+- **Professional PDF reports** — one click re-scans the target and renders a multi-section report (cover, executive summary, findings, methodology, appendix). See [`docs/sample-report.pdf`](docs/sample-report.pdf).
+- **Reddit OSINT — keyless** — a dedicated section pulls karma, cake day, most-active subreddits, activity patterns and recent posts/comments from public Reddit archives (Arctic Shift + PullPush), including removed/deleted content — **no API key or OAuth**.
+- **Searchable logs** — every scan is saved with its full captured dossier; open any past search to see everything it found, then **re-run** it or **search again**.
+- **Live dashboard** — targets scanned, profiles found, success rate, and a threat level that reacts to the risk score.
+- **Cyber Attacks feed** — a live security-news stream (Hacker News, cached).
+- **Safety built in** — an SSRF guard blocks private/metadata targets; heavy or keyed analyzers are off by default.
+
+## 🗂 Workspace
+
+The UI is a sidebar workspace with four views (Home is unchanged terminal-first):
+
+| View | What it's for |
+|------|---------------|
+| **Home** | the terminal console, quick search, live stats, risk tile, PDF export |
+| **Reddit** | keyless Reddit OSINT — profile, karma, cake day, top subreddits, activity, posts/comments |
+| **Logs** | every past scan; click one for its full dossier + *run again* / *search again* |
+| **Cyber Attacks** | live feed of breaches, exploits & incidents |
 
 ## ⚡ Quick start
 
@@ -61,6 +79,8 @@ OSINT_ENABLE_HOLEHE=1 uvicorn kyther.api:app --port 8099
 | `search --phone <number>` | offline carrier / region / line-type intel |
 | `help` · `clear` | usage · reset the terminal |
 
+> Reddit lookups live in their own **Reddit** view (keyless), not a `search --` command.
+
 ## 🖥 CLI
 
 Every analyzer is also scriptable from the terminal:
@@ -77,14 +97,14 @@ python -m kyther.cli list                           # registered analyzers
 
 | Input | Analyzers |
 |-------|-----------|
-| **username** | WhatsMyName (719 sites) · Sherlock (413) · profile enrichment (GitHub/Keybase/Reddit/HN/Instagram) · GitHub-commit emails |
+| **username** | WhatsMyName (719 sites) · Sherlock (413) · profile enrichment (GitHub/Keybase/Reddit/HN/Instagram) · GitHub-commit emails · **Reddit archives (keyless)** |
 | **email** | Gravatar · GitHub → email pivot · Holehe\* · HIBP\* · EmailRep\* |
 | **domain / IP** | DNS · RDAP · crt.sh · HTTP probe · Shodan InternetDB · IP geolocation · Hunter\* |
 | **phone** | offline `phonenumbers` intelligence |
 | **company** | SEC EDGAR full-text search |
 | **person** | investigative search links |
 
-`*` = needs a free key or an opt-in flag; **off by default**.
+`*` = needs a free key or an opt-in flag; **off by default**. Run `python -m kyther.cli list` to see each analyzer's status.
 
 ## 🧠 How it works
 
@@ -93,20 +113,24 @@ seed entity ─► orchestrator ─► [analyzers accepting this type] ─► fi
                     ▲                                              │
                     └──────────── discovered entities ◄────────────┘
                               (depth-limited BFS pivot)
+
+findings ─► confidence tagging ─► dossier + timeline + graph ─► risk score ─► (PDF)
 ```
 
 - **`kyther/core/`** — entity model, plugin registry, async pivot engine, SSRF guard.
 - **`kyther/analyzers/`** — one file per source. Add a plugin by dropping a module here and listing it in `__init__.py`.
-- **`kyther/api.py`** — FastAPI service (`/api/scan`, `/api/news`, `/api/analyzers`) + the console.
-- **`kyther/web/index.html`** — the self-contained Kyther terminal UI.
+- **`kyther/api.py`** — FastAPI service: `/api/scan`, `/api/report` (PDF), `/api/reddit`, `/api/news`, `/api/analyzers` + the console.
+- **`kyther/report.py`** — the reportlab PDF report generator.
+- **`kyther/web/index.html`** — the self-contained Kyther workspace UI.
 
 ## ⚖ Scope & ethics
 
 Kyther uses only **public, no-auth data** (or an optional bring-your-own key you
 supply). No auth bypass, no paywalled scraping, no captcha-solving. Account
-enumeration and email-registration checks are **opt-in**. Use it only against
-targets you're authorized to investigate — authorized security research, CTFs,
-and education.
+enumeration and email-registration checks are **opt-in**. Reddit data comes from
+public archives, not scraping logged-in sessions. Use it only against targets
+you're authorized to investigate — authorized security research, CTFs, and
+education.
 
 ## Design system
 
