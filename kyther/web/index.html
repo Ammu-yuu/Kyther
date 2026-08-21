@@ -225,6 +225,8 @@
   .rd-badges{display:flex;flex-wrap:wrap;gap:6px;margin:7px 0;}
   .rd-badge{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#c4a7e7;border:1px solid #4a3d63;border-radius:4px;padding:2px 7px;}
   .rd-badge.nsfw{color:var(--dot-r);border-color:#5a2e2e;}
+  .rd-sub2{color:var(--dim);font-size:11.5px;margin:6px 0;}
+  .rd-note{color:var(--dim);font-size:11px;margin:2px 0 0;font-style:italic;}
   .rd-bio{color:var(--output);font-size:12.5px;margin:6px 0;max-width:640px;}
   .rd-link{color:var(--pink);font-size:11.5px;border-bottom:1px dotted #f472b644;}
   .rd-link:hover{border-bottom-style:solid;}
@@ -388,7 +390,7 @@
           <input id="rdInput" placeholder="reddit username, e.g. Actual-Host-1830  (or a profile URL)" autocomplete="off" spellcheck="false" />
           <button id="rdGo">Search</button>
         </div>
-        <div id="rdResult"><div class="rd-empty">enter a Reddit username above to pull their public footprint.</div></div>
+        <div id="rdResult"><div class="rd-empty">enter a Reddit username above to pull their public footprint — keyless, via public Reddit archives.</div></div>
       </div>
     </section>
 
@@ -757,7 +759,7 @@ async function runReddit(raw){
   if(rdBusy) return;
   const u=(raw||"").trim(); if(!u) return;
   rdBusy=true; $("#rdGo").disabled=true;
-  $("#rdResult").innerHTML='<div class="rd-empty">searching Reddit<span class="blink">_</span></div>';
+  $("#rdResult").innerHTML='<div class="rd-empty">searching Reddit archives<span class="blink">_</span></div>';
   try{
     const r=await fetch(API+"/api/reddit?u="+encodeURIComponent(u));
     renderReddit(await r.json());
@@ -768,18 +770,9 @@ async function runReddit(raw){
 function renderReddit(d){
   const box=$("#rdResult");
   if(!d || !d.found){
-    if(d && d.needs_key){
-      box.innerHTML=`<div class="rd-empty">Reddit no longer allows anonymous profile reads, so this needs a <b>free</b> Reddit API client id (no cost, ~1&nbsp;min):<br><br>`+
-        `1. open <a class="rd-link" href="https://www.reddit.com/prefs/apps" target="_blank" rel="noopener">reddit.com/prefs/apps</a> → <b>create another app</b><br>`+
-        `2. choose type <code>installed app</code>, set redirect uri to <code>http://localhost</code>, create it<br>`+
-        `3. copy the id shown <i>under the app's name</i> (a short string)<br>`+
-        `4. restart the server with it set:<br><br><code>REDDIT_CLIENT_ID=&lt;your-id&gt; uvicorn kyther.api:app --port 8099</code></div>`;
-    } else {
-      box.innerHTML=`<div class="rd-empty ${d&&(d.error==='blocked'||d.error==='auth_failed')?'err':''}">${esc((d&&d.message)||"No public Reddit account found.")}</div>`;
-    }
+    box.innerHTML=`<div class="rd-empty ${d&&d.error==='fetch_failed'?'err':''}">${esc((d&&d.message)||"No archived Reddit activity found.")}</div>`;
     return;
   }
-  if(d.suspended){ box.innerHTML=`<div class="rd-empty err">${esc(d.message)} <a class="rd-link" href="${esc(d.url)}" target="_blank" rel="noopener">view profile ↗</a></div>`; return; }
 
   const k=d.karma||{}, fl=d.flags||{};
   const num=n=>(n==null?"—":Number(n).toLocaleString());
@@ -797,13 +790,19 @@ function renderReddit(d){
   const posts=(d.recent_posts||[]).map(p=>`<a class="rd-item" href="${esc(p.url)}" target="_blank" rel="noopener"><div class="ri-title">${esc(p.title||"(untitled)")}</div><div class="ri-meta">r/${esc(p.subreddit)} · ↑${num(p.score)} · ${num(p.num_comments)} comments · ${esc((p.created||"").slice(0,10))}${p.nsfw?' · <span class="rd-nsfw">NSFW</span>':""}</div></a>`).join("")||'<div class="rd-empty">no public posts.</div>';
   const cmts=(d.recent_comments||[]).map(c=>`<a class="rd-item" href="${esc(c.url)}" target="_blank" rel="noopener"><div class="ri-body">${esc(c.body||"")}</div><div class="ri-meta">r/${esc(c.subreddit)} · ↑${num(c.score)} · ${esc((c.created||"").slice(0,10))}</div></a>`).join("")||'<div class="rd-empty">no public comments.</div>';
 
+  const c=d.counts||{};
+  const totals = c.posts_total!=null
+    ? `${num(c.posts_total)} posts · ${num(c.comments_total)} comments archived`
+    : `${num(c.posts_fetched)} posts · ${num(c.comments_fetched)} comments sampled`;
+  const meta = [totals, d.last_active?`last active ${esc(d.last_active)}`:"", `via ${esc(d.source||"archives")}`].filter(Boolean).join(" · ");
   box.innerHTML=`
     <div class="panel rd-card">
       <div class="rd-head">
-        ${d.avatar?`<img class="rd-avatar" src="${esc(d.avatar)}" alt="" referrerpolicy="no-referrer">`:`<div class="rd-avatar rd-avatar-ph">r/</div>`}
+        <div class="rd-avatar rd-avatar-ph">r/</div>
         <div class="rd-id">
           <div class="rd-name">u/${esc(d.username)}</div>
-          <div class="rd-badges">${badges||'<span class="info" style="font-size:11px">no special flags</span>'}</div>
+          <div class="rd-sub2">${meta}</div>
+          ${badges?`<div class="rd-badges">${badges}</div>`:""}
           ${d.bio?`<div class="rd-bio">${esc(d.bio)}</div>`:""}
           <a class="rd-link" href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.url)} ↗</a>
         </div>
@@ -815,8 +814,9 @@ function renderReddit(d){
       ${stat("Comment Karma",num(k.comment))}
       ${stat("Cake Day",esc(d.created||"—"),d.age_days!=null?(d.age_days/365).toFixed(1)+" yrs on Reddit":"")}
     </div>
+    ${d.karma_known?"":`<div class="rd-note">karma isn't in the archive for this account — figures shown are from indexed posts/comments only.</div>`}
     ${trophies}
-    ${subs?`<div class="rd-sec"><div class="plabel">Top subreddits <span class="info">(from last ${acts} actions)</span></div><div class="rd-bars">${subs}</div></div>`:""}
+    ${subs?`<div class="rd-sec"><div class="plabel">Top subreddits <span class="info">(from ${acts} sampled actions)</span></div><div class="rd-bars">${subs}</div></div>`:""}
     ${(d.activity_by_hour||[]).some(n=>n)?`<div class="rd-sec"><div class="plabel">Activity by hour <span class="info">(UTC)</span></div><div class="rd-hist">${hours}</div><div class="rd-hist-x"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div></div>`:""}
     <div class="rd-cols">
       <div class="rd-sec" style="margin-top:0"><div class="plabel">Recent posts</div><div class="rd-list">${posts}</div></div>
@@ -825,6 +825,10 @@ function renderReddit(d){
 }
 $("#rdGo").addEventListener("click",()=>runReddit($("#rdInput").value));
 $("#rdInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runReddit($("#rdInput").value); });
+$("#rdKey").value=rdKey();
+$("#rdKeySave").addEventListener("click",saveRdKey);
+$("#rdKey").addEventListener("keydown",e=>{ if(e.key==="Enter") saveRdKey(); });
+renderRdKeyState();
 
 banner(); renderStats(); renderLog(); loadNews(); cmdIn.focus();
 </script>

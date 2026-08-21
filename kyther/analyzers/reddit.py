@@ -1,19 +1,22 @@
-"""Reddit OSINT for a username — public data, keyless (rosint.dev-style).
+"""Reddit OSINT for a username — keyless, via public Reddit archives.
 
-Reddit publishes every user's activity as public JSON: their profile
-(``about.json``), submitted posts, comments and trophies. From those four
-endpoints we assemble a compact dossier — karma breakdown, cake day, the
-subreddits they're most active in and when they post — the same signals a
-Reddit-focused OSINT lookup surfaces, with no API key.
+Reddit itself now blocks anonymous JSON reads, so — like the Rosint project
+(github.com/zuxu4n/Rosint) this mirrors — we read from two public archive
+services instead, no API key or OAuth required:
 
-The heavy fetch lives in :func:`reddit_dossier`, which the ``/api/reddit``
-endpoint calls directly for the dedicated Reddit section. The registered
-:class:`RedditAnalyzer` reuses it to lightly enrich ordinary username scans.
+* **Arctic Shift** (arctic-shift.photon-reddit.com) — its ``users/search``
+  endpoint returns karma and first/last-activity stats, and ``posts``/
+  ``comments`` return the full history (including removed/deleted content).
+* **PullPush** (api.pullpush.io) — a fallback archive for posts and comments.
+
+From those we assemble a compact dossier — karma, cake day, most-active
+subreddits and posting-time patterns. The heavy fetch lives in
+:func:`reddit_dossier`, which ``/api/reddit`` calls directly; the registered
+:class:`RedditAnalyzer` reuses it to enrich ordinary username scans.
 """
 from __future__ import annotations
 
-import os
-import time
+import asyncio
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -22,67 +25,10 @@ from ..core.entities import AnalyzerResult, Entity, EntityType, Finding
 from ..core.registry import register
 from ._http import client
 
-_BASE = "https://www.reddit.com"
-_OAUTH = "https://oauth.reddit.com"
-_LIMIT = 100  # Reddit's max page size for listings
-# Reddit requires a unique, descriptive User-Agent and (now) OAuth for JSON.
-_UA = "kyther/0.2 (OSINT research; +https://github.com/Ammu-yuu/Kyther)"
-_ENV_KEY = "REDDIT_CLIENT_ID"  # free "installed app" client id — no secret needed
-
-# App-only bearer token, cached in-process until it nears expiry.
-_TOKEN: dict = {"value": None, "exp": 0.0}
-
-
-async def _app_token(http, client_id: str) -> str | None:
-    """Fetch/refresh an app-only OAuth token (installed-client grant, keyless)."""
-    now = time.time()
-    if _TOKEN["value"] and now < _TOKEN["exp"] - 30:
-        return _TOKEN["value"]
-    r = await http.post(
-        f"{_BASE}/api/v1/access_token",
-        data={"grant_type": "https://oauth.reddit.com/grants/installed_client",
-              "device_id": "DO_NOT_TRACK_THIS_DEVICE"},
-        auth=(client_id, ""),
-        headers={"User-Agent": _UA},
-    )
-    if r.status_code != 200:
-        return None
-    tok = (r.json() or {}).get("access_token")
-    if tok:
-        _TOKEN.update(value=tok, exp=now + float((r.json() or {}).get("expires_in", 3600)))
-    return tok
-
-
-async def _fetch_user(http, u: str, token: str | None):
-    """Pull about/submitted/comments/trophies via OAuth when we have a token,
-    else best-effort public JSON. Raises RuntimeError('blocked'|'rate_limited')."""
-    if token:
-        base, suffix = _OAUTH, ""
-        trophies_path = f"/api/v1/user/{u}/trophies"
-        headers = {"User-Agent": _UA, "Authorization": f"Bearer {token}"}
-    else:
-        base, suffix = _BASE, ".json"
-        trophies_path = f"/user/{u}/trophies.json"
-        headers = {"User-Agent": _UA}
-
-    async def g(path: str, **params):
-        r = await http.get(base + path, params={**params, "raw_json": 1}, headers=headers)
-        if r.status_code == 429:
-            raise RuntimeError("rate_limited")
-        if r.status_code in (401, 403):
-            raise RuntimeError("blocked")
-        if r.status_code != 200:
-            return None  # 404 etc. -> genuinely absent
-        try:
-            return r.json()
-        except Exception:
-            return None
-
-    about = await g(f"/user/{u}/about{suffix}")
-    submitted = await g(f"/user/{u}/submitted{suffix}", limit=_LIMIT, sort="new")
-    comments = await g(f"/user/{u}/comments{suffix}", limit=_LIMIT, sort="new")
-    trophies = await g(trophies_path)
-    return about, submitted, comments, trophies
+_ARCTIC = "https://arctic-shift.photon-reddit.com/api"
+_PULLPUSH = "https://api.pullpush.io/reddit/search"
+_LIMIT = 100  # max page size both archives honour
+_WWW = "https://www.reddit.com"
 
 
 def _dt(ts) -> datetime | None:
@@ -119,86 +65,106 @@ def normalize_username(raw: str) -> str:
     return u.split("/")[0].split("?")[0].lstrip("@")
 
 
-def _children(listing) -> list[dict]:
-    return [c.get("data", {}) for c in ((listing or {}).get("data", {}) or {}).get("children", [])]
+async def _arctic_user(http, u: str):
+    """Karma + first/last-activity aggregate for a user, or None."""
+    try:
+        r = await http.get(f"{_ARCTIC}/users/search", params={"author": u})
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    items = (r.json() or {}).get("data") or []
+    return items[0] if items else None
+
+
+async def _arctic_list(http, kind: str, u: str):
+    """kind in {'posts','comments'} -> list of records (None on transport error)."""
+    try:
+        r = await http.get(f"{_ARCTIC}/{kind}/search",
+                           params={"author": u, "limit": _LIMIT, "sort": "desc"})
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    return (r.json() or {}).get("data") or []
+
+
+async def _pullpush(http, kind: str, u: str):
+    """Fallback archive. kind in {'submission','comment'} -> list or None."""
+    try:
+        r = await http.get(f"{_PULLPUSH}/{kind}/",
+                           params={"author": u, "size": _LIMIT, "sort": "desc"})
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    return (r.json() or {}).get("data") or []
+
+
+def _perma(rec: dict) -> str:
+    p = rec.get("permalink") or ""
+    if p.startswith("/"):
+        return _WWW + p
+    return p or rec.get("full_link") or rec.get("url") or ""
+
+
+def _post_rec(p: dict) -> dict:
+    return {"title": p.get("title"), "subreddit": p.get("subreddit"),
+            "score": p.get("score"), "num_comments": p.get("num_comments"),
+            "created": _iso(p.get("created_utc")), "url": _perma(p),
+            "link": p.get("url"), "nsfw": bool(p.get("over_18")),
+            "flair": p.get("link_flair_text")}
+
+
+def _cmt_rec(c: dict) -> dict:
+    body = (c.get("body") or "").strip().replace("\n", " ")
+    return {"body": body[:280] + ("…" if len(body) > 280 else ""),
+            "subreddit": c.get("subreddit"), "score": c.get("score"),
+            "created": _iso(c.get("created_utc")), "url": _perma(c),
+            "link_title": c.get("link_title")}
 
 
 async def reddit_dossier(username: str, full: bool = False) -> dict:
-    """Fetch and assemble a public Reddit dossier for ``username``.
+    """Assemble a public Reddit dossier for ``username`` from the archives.
 
-    Returns ``{"found": False, ...}`` when there's no such public account, or a
-    ``rate_limited`` marker when Reddit throttles us. With ``full=True`` the
-    dossier carries the longer recent-posts/comments lists for the UI; the
-    lighter default is what scans embed.
+    Keyless. Returns ``{"found": False, ...}`` when no archived activity exists.
+    With ``full=True`` the dossier carries the longer recent-posts/comments
+    lists for the UI; the lighter default is what scans embed.
     """
     u = normalize_username(username)
     if not u:
         return {"found": False, "error": "empty", "message": "Enter a Reddit username."}
 
-    client_id = os.environ.get(_ENV_KEY)
-    async with client(12.0) as http:
-        token = None
-        if client_id:
-            try:
-                token = await _app_token(http, client_id)
-            except Exception:
-                token = None
-            if not token:
-                return {"found": False, "error": "auth_failed", "username": u,
-                        "message": f"{_ENV_KEY} is set but Reddit rejected it — confirm the client ID is "
-                                   "from a Reddit app of type 'installed app'."}
-        try:
-            about, submitted, comments, trophies = await _fetch_user(http, u, token)
-        except RuntimeError as e:
-            if str(e) == "rate_limited":
-                return {"found": False, "error": "rate_limited", "username": u,
-                        "message": "Reddit is rate-limiting requests right now — try again in a minute."}
-            # blocked (401/403): unauthenticated JSON is no longer allowed
-            msg = ("Reddit blocked the request even with credentials — try again shortly."
-                   if client_id else
-                   "Reddit no longer allows anonymous profile reads. Set a free "
-                   f"{_ENV_KEY} (Reddit → preferences → apps → create an 'installed app', "
-                   "copy the id under the app name) and restart the server.")
-            return {"found": False, "error": "blocked", "username": u, "needs_key": not client_id,
-                    "message": msg}
+    async with client(15.0) as http:
+        meta, posts, comments = await asyncio.gather(
+            _arctic_user(http, u),
+            _arctic_list(http, "posts", u),
+            _arctic_list(http, "comments", u),
+        )
+        source = "Arctic Shift"
+        # If Arctic Shift's history calls both failed, fall back to PullPush.
+        if posts is None and comments is None:
+            posts, comments = await asyncio.gather(
+                _pullpush(http, "submission", u),
+                _pullpush(http, "comment", u),
+            )
+            source = "PullPush"
 
-    data = (about or {}).get("data") or {}
-    if not about or not data:
+    posts = posts or []
+    comments = comments or []
+    if not meta and not posts and not comments:
         return {"found": False, "username": u,
-                "message": f"No public Reddit account named u/{u} (it may be private, banned, or misspelled)."}
-    if data.get("is_suspended"):
-        return {"found": True, "suspended": True, "username": data.get("name") or u,
-                "url": f"{_BASE}/user/{u}",
-                "message": f"u/{u} is suspended — profile data is unavailable."}
-
-    sub = data.get("subreddit") or {}
-    posts = _children(submitted)
-    cmts = _children(comments)
-
-    def _post_rec(p: dict) -> dict:
-        return {"title": p.get("title"), "subreddit": p.get("subreddit"),
-                "score": p.get("score"), "num_comments": p.get("num_comments"),
-                "created": _iso(p.get("created_utc")),
-                "url": _BASE + (p.get("permalink") or ""),
-                "link": p.get("url"), "nsfw": bool(p.get("over_18")),
-                "flair": p.get("link_flair_text")}
-
-    def _cmt_rec(c: dict) -> dict:
-        body = (c.get("body") or "").strip().replace("\n", " ")
-        return {"body": body[:280] + ("…" if len(body) > 280 else ""),
-                "subreddit": c.get("subreddit"), "score": c.get("score"),
-                "created": _iso(c.get("created_utc")),
-                "url": _BASE + (c.get("permalink") or ""),
-                "link_title": c.get("link_title")}
+                "message": f"No archived Reddit activity for u/{u}. The public archives "
+                           "may not have indexed this account, or it has no posts/comments."}
 
     post_recs = [_post_rec(p) for p in posts]
-    cmt_recs = [_cmt_rec(c) for c in cmts]
+    cmt_recs = [_cmt_rec(c) for c in comments]
 
-    # Aggregate where and when they're active, across posts + comments.
+    # Where and when they're active, across everything we fetched.
     sub_counter: Counter = Counter()
     hours = [0] * 24
     weekdays = [0] * 7
-    for it in posts + cmts:
+    for it in posts + comments:
         s = it.get("subreddit")
         if s:
             sub_counter[s] += 1
@@ -208,44 +174,48 @@ async def reddit_dossier(username: str, full: bool = False) -> dict:
             weekdays[d.weekday()] += 1
     top_subs = [{"subreddit": s, "count": n} for s, n in sub_counter.most_common(12)]
 
-    created = data.get("created_utc")
+    m = (meta or {}).get("_meta") or {}
+    # Cake day: earliest known activity (from meta if present, else our sample).
+    fetched_created = [_dt(it.get("created_utc")) for it in posts + comments]
+    fetched_created = [d for d in fetched_created if d]
+    earliest_epochs = [e for e in (m.get("earliest_post_at"), m.get("earliest_comment_at")) if e]
+    if earliest_epochs:
+        created = min(earliest_epochs)
+    elif fetched_created:
+        created = min(fetched_created).timestamp()
+    else:
+        created = None
+    last_epochs = [e for e in (m.get("last_post_at"), m.get("last_comment_at")) if e]
+    last_active = max(last_epochs) if last_epochs else (
+        max(fetched_created).timestamp() if fetched_created else None)
     cd = _dt(created)
     age_days = (datetime.now(timezone.utc) - cd).days if cd else None
 
-    trophy_names = [t.get("data", {}).get("name")
-                    for t in ((trophies or {}).get("data", {}) or {}).get("trophies", [])]
-    trophy_names = [t for t in trophy_names if t]
+    karma = {"total": m.get("total_karma"), "post": m.get("post_karma"),
+             "comment": m.get("comment_karma"), "awardee": None, "awarder": None}
+    total_posts = m.get("num_posts")
+    total_comments = m.get("num_comments")
 
     dossier = {
         "found": True,
-        "username": data.get("name") or u,
-        "url": f"{_BASE}/user/{u}",
-        "id": data.get("id"),
-        "avatar": (data.get("snoovatar_img") or data.get("icon_img") or "").split("?")[0] or None,
+        "username": (meta or {}).get("author") or u,
+        "url": f"{_WWW}/user/{u}",
+        "id": (meta or {}).get("id"),
+        "source": source,
+        "avatar": None,          # archives don't carry profile media
         "created": _date(created),
         "created_iso": _iso(created),
         "age_days": age_days,
-        "karma": {
-            "total": data.get("total_karma"),
-            "post": data.get("link_karma"),
-            "comment": data.get("comment_karma"),
-            "awardee": data.get("awardee_karma"),
-            "awarder": data.get("awarder_karma"),
-        },
-        "flags": {
-            "gold": bool(data.get("is_gold")),
-            "mod": bool(data.get("is_mod")),
-            "employee": bool(data.get("is_employee")),
-            "verified": bool(data.get("verified")),
-            "verified_email": bool(data.get("has_verified_email")),
-            "nsfw": bool(sub.get("over_18")),
-        },
-        "bio": sub.get("public_description") or None,
-        "profile_title": sub.get("title") or None,
-        "trophies": trophy_names,
+        "last_active": _date(last_active),
+        "karma": karma,
+        "karma_known": any(v is not None for v in (karma["total"], karma["post"], karma["comment"])),
+        "flags": {},             # archives don't expose gold/mod/verified flags
+        "bio": None,
+        "trophies": [],
         "counts": {
-            "posts_fetched": len(posts), "comments_fetched": len(cmts),
-            "posts_capped": len(posts) >= _LIMIT, "comments_capped": len(cmts) >= _LIMIT,
+            "posts_fetched": len(posts), "comments_fetched": len(comments),
+            "posts_total": total_posts, "comments_total": total_comments,
+            "posts_capped": len(posts) >= _LIMIT, "comments_capped": len(comments) >= _LIMIT,
         },
         "top_subreddits": top_subs,
         "activity_by_hour": hours,
@@ -261,10 +231,9 @@ async def reddit_dossier(username: str, full: bool = False) -> dict:
 @register
 class RedditAnalyzer(Analyzer):
     name = "reddit"
-    description = "Public Reddit OSINT for a username — karma, cake day, top subreddits, activity."
+    description = "Public Reddit OSINT for a username (keyless, via Arctic Shift / PullPush archives)."
     accepts = {EntityType.USERNAME}
-    env_key = _ENV_KEY  # Reddit requires a free app client id; skip scans without one
-    timeout = 25.0
+    timeout = 30.0
 
     async def run(self, entity: Entity) -> AnalyzerResult:
         result = AnalyzerResult()
@@ -272,9 +241,13 @@ class RedditAnalyzer(Analyzer):
             d = await reddit_dossier(entity.value, full=False)
         except Exception:
             return result
-        if not d.get("found") or d.get("suspended"):
+        if not d.get("found"):
             return result
         k = d.get("karma") or {}
-        title = f"Reddit u/{d['username']} — {k.get('total') or 0} karma, cake day {d.get('created')}"
+        karma = k.get("total")
+        bits = [f"cake day {d.get('created')}"] if d.get("created") else []
+        if karma is not None:
+            bits.insert(0, f"{karma} karma")
+        title = f"Reddit u/{d['username']}" + (" — " + ", ".join(bits) if bits else "")
         result.findings.append(Finding(self.name, entity, title, data=d))
         return result

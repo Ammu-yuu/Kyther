@@ -343,7 +343,7 @@ async def news() -> list[dict]:
 
 @app.get("/api/reddit")
 async def reddit_lookup(u: str = Query(..., min_length=1, max_length=64)) -> dict:
-    """Dedicated Reddit OSINT lookup — full public dossier for a username."""
+    """Dedicated Reddit OSINT lookup — keyless public dossier for a username."""
     from .analyzers.reddit import reddit_dossier
     try:
         return await reddit_dossier(u, full=True)
