@@ -21,7 +21,7 @@ subject's exposure, and can export a professional PDF report. That
 entity-correlation loop is what makes it an orchestrator rather than a one-shot
 lookup — all behind a terminal-style console.
 
-![Kyther console](docs/kyther.png)
+![Kyther — orchestrated scan, risk dashboard, and live security feed](docs/screens/home.png)
 
 ---
 
@@ -49,6 +49,20 @@ The UI is a sidebar workspace with four views (Home is unchanged terminal-first)
 | **Reddit** | keyless Reddit OSINT — profile, karma, cake day, top subreddits, activity, posts/comments |
 | **Logs** | every past scan; click one for its full dossier + *run again* / *search again* |
 | **Cyber Attacks** | live feed of breaches, exploits & incidents |
+
+## 📸 Screenshots
+
+**Reddit OSINT — keyless.** Profile, karma, cake day, most-active subreddits, activity-by-hour, and recent posts/comments — pulled from public archives with no API key.
+
+![Kyther Reddit OSINT](docs/screens/reddit.png)
+
+**Searchable logs.** Every scan is saved with its full captured dossier; reopen any past search, then *run it again* or *search again*.
+
+![Kyther search logs](docs/screens/logs.png)
+
+**Live Cyber Attacks feed.** A rolling stream of breaches, exploits, and incidents.
+
+![Kyther cyber attacks feed](docs/screens/attacks.png)
 
 ## ⚡ Quick start
 
