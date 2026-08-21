@@ -16,6 +16,7 @@ from . import (  # noqa: F401
     phone,
     profile,
     rdap,
+    reddit,
     search_dorks,
     sec_edgar,
     sherlock,

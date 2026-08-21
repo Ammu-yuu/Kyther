@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
@@ -52,6 +52,7 @@ class ScanRequest(BaseModel):
 _CATEGORY = {
     "username": "accounts",
     "sherlock": "accounts",
+    "reddit": "reddit",
     "profile_enrich": "profile",
     "github_emails": "emails",
     "holehe": "email_accounts",
@@ -87,6 +88,7 @@ _CONFIDENCE = {
     "email_basic": Confidence.CONFIRMED,     # a Gravatar hit is a real account
     "profile_enrich": Confidence.CONFIRMED,  # structured API profile data
     "username": Confidence.CONFIRMED,        # WhatsMyName positive-match + control-probe
+    "reddit": Confidence.CONFIRMED,          # Reddit's own public profile/activity JSON
     # strong-but-not-authoritative -> PROBABLE
     "holehe": Confidence.PROBABLE,
     "hunter": Confidence.PROBABLE,
@@ -337,6 +339,16 @@ async def news() -> list[dict]:
     out = out[:15]
     _NEWS_CACHE.update(ts=now, data=out)
     return out
+
+
+@app.get("/api/reddit")
+async def reddit_lookup(u: str = Query(..., min_length=1, max_length=64)) -> dict:
+    """Dedicated Reddit OSINT lookup — full public dossier for a username."""
+    from .analyzers.reddit import reddit_dossier
+    try:
+        return await reddit_dossier(u, full=True)
+    except Exception as exc:  # never 500 the UI; surface a soft error
+        return {"found": False, "error": "fetch_failed", "message": str(exc)}
 
 
 @app.get("/api/analyzers")

@@ -124,10 +124,176 @@
   .news-item .m{color:var(--dim);font-size:10.5px;margin-top:5px;}
   .news-loading{color:var(--dim);font-size:12px;padding:10px 0;}
   .blink{animation:blink 1.1s step-end infinite;} @keyframes blink{50%{opacity:0;}}
+
+  /* ---- Side navigation + view shell ---- */
+  .app{display:flex;align-items:stretch;min-height:100vh;}
+  .sidebar{width:212px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:20px 14px;}
+  .side-brand{display:flex;align-items:center;gap:10px;padding:2px 6px 16px;margin-bottom:10px;border-bottom:1px solid var(--border);}
+  .side-brand svg{height:30px;width:auto;display:block;}
+  .side-brand .sb-name{font-family:var(--brand);font-size:17px;font-weight:700;color:var(--primary);}
+  .side-nav{display:flex;flex-direction:column;gap:4px;}
+  .nav-item{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:transparent;border:0;border-radius:7px;padding:10px 12px;color:var(--dim);font-family:var(--mono);font-size:13px;cursor:pointer;transition:.12s;}
+  .nav-item:hover{color:var(--primary);background:var(--bar);}
+  .nav-item.on{color:var(--primary);background:#211d29;box-shadow:inset 2px 0 0 var(--pink);}
+  .nav-item .ni-ico{width:18px;text-align:center;font-size:15px;color:var(--dim);}
+  .nav-item.on .ni-ico{color:var(--pink);}
+  .side-foot{margin-top:auto;color:var(--dim);font-size:10.5px;padding:10px 12px 2px;border-top:1px solid var(--border);}
+  .content{flex:1;min-width:0;}
+  .view[hidden]{display:none;}
+
+  /* ---- Generic view header ---- */
+  .view-head{display:flex;align-items:center;gap:13px;flex-wrap:wrap;margin-bottom:20px;}
+  .view-head h2{font-family:var(--brand);font-size:21px;font-weight:700;color:var(--primary);margin:0;}
+  .view-head .vh-sub{color:var(--dim);font-size:12px;}
+  .view-head .vh-act{margin-left:auto;display:flex;gap:8px;}
+  .vh-btn{background:var(--bar);border:1px solid var(--border);color:var(--dim);border-radius:6px;font-family:var(--mono);font-size:11.5px;padding:7px 12px;cursor:pointer;}
+  .vh-btn:hover{color:var(--primary);border-color:#3a3444;}
+
+  /* ---- Logs view ---- */
+  .logs-layout{display:grid;grid-template-columns:290px minmax(0,1fr);gap:18px;align-items:start;}
+  @media(max-width:820px){.logs-layout{grid-template-columns:1fr;}}
+  .logs-list{display:flex;flex-direction:column;gap:8px;max-height:74vh;overflow-y:auto;padding-right:2px;}
+  .log-row{display:flex;flex-direction:column;gap:5px;padding:11px 13px;border:1px solid var(--border);border-radius:6px;background:var(--panel);cursor:pointer;transition:.12s;}
+  .log-row:hover{border-color:#3a3444;}
+  .log-row.on{border-color:var(--pink);background:#1d1622;}
+  .log-row .lr-top{display:flex;gap:9px;align-items:baseline;justify-content:space-between;}
+  .log-row .lr-val{color:var(--primary);font-size:13px;word-break:break-all;}
+  .log-row .lr-type{color:var(--pink);font-size:11px;flex-shrink:0;}
+  .log-row .lr-meta{display:flex;gap:8px;color:var(--dim);font-size:11px;}
+  .logs-detail{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:20px 22px;min-height:320px;}
+  .ld-empty{color:var(--dim);font-size:12.5px;}
+  .ld-h{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--border);}
+  .ld-h-val{font-size:18px;color:var(--primary);font-weight:500;word-break:break-all;}
+  .ld-h-meta{color:var(--dim);font-size:11.5px;margin-top:4px;}
+  .ld-h-meta .lr-type{color:var(--pink);}
+  .ld-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;}
+  .ld-btn{background:var(--bar);border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:12px;padding:8px 14px;cursor:pointer;transition:.12s;}
+  .ld-btn.run{color:var(--green);border-color:#2e5a44;} .ld-btn.run:hover{background:#15251d;border-color:var(--green);}
+  .ld-btn.again{color:#c4a7e7;border-color:#4a3d63;} .ld-btn.again:hover{background:#211d29;border-color:#bfa4e4;}
+  .ld-sec{margin-top:18px;}
+  .ld-sec .plabel{margin-bottom:8px;}
+  .ld-body{font-size:12.5px;}
+  .ld-kv{display:flex;gap:10px;padding:3px 0;}
+  .ld-kv .kv{color:var(--dim);min-width:82px;flex-shrink:0;}
+  .ld-kv .val{color:var(--primary);}
+  .ld-accsum{margin-bottom:9px;}
+  .ld-accrow{padding:3px 0;}
+  .logs-detail a.match{color:var(--pink);border-bottom:1px dotted #f472b644;}
+  .logs-detail a.match:hover{border-bottom-style:solid;}
+  .ld-risk{font-size:15px;font-weight:700;margin-bottom:8px;}
+  .ld-body .rf{display:flex;gap:10px;padding:2px 0;color:var(--output);}
+  .ld-body .rf .lbl{color:var(--primary);} .ld-body .rf .pts{margin-left:auto;color:var(--dim);font-variant-numeric:tabular-nums;}
+  details.ld-unv,details.ld-raw{margin-top:8px;}
+  details.ld-unv summary,details.ld-raw summary{cursor:pointer;color:var(--dim);font-size:12px;}
+  details.ld-unv summary:hover,details.ld-raw summary:hover{color:var(--primary);}
+  .ld-unv-links{margin-top:8px;line-height:2;}
+  .logs-detail a.unv-link{color:var(--dim);border-bottom:1px dotted var(--dim);}
+  .logs-detail a.unv-link:hover{color:var(--output);}
+  .ld-pre{margin-top:10px;background:#0d0b11;border:1px solid var(--border);border-radius:6px;padding:12px;max-height:340px;overflow:auto;font-size:11px;color:var(--output);white-space:pre;}
+
+  /* ---- Cyber attacks view ---- */
+  .attacks-list{display:flex;flex-direction:column;}
+  .attack-item{display:flex;align-items:center;gap:15px;padding:15px 6px;border-top:1px solid var(--border);}
+  .attack-item:first-child{border-top:0;}
+  .attack-item .ai-idx{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;width:24px;flex-shrink:0;}
+  .attack-item .ai-title{color:var(--primary);font-size:13.5px;line-height:1.45;}
+  .attack-item:hover .ai-title{color:var(--pink);}
+  .attack-item .ai-meta{color:var(--dim);font-size:11px;margin-top:4px;}
+  .attack-item .ai-arrow{margin-left:auto;color:var(--dim);flex-shrink:0;}
+  .attack-item:hover .ai-arrow{color:var(--pink);}
+
+  /* clickable home mini-log */
+  .log-item{cursor:pointer;}
+  .log-item:hover .log-cmd{color:var(--pink);}
+
+  /* ---- Reddit view ---- */
+  .rd-search{display:flex;gap:10px;margin-bottom:22px;max-width:600px;}
+  #rdInput{flex:1;background:#0d0b11;border:1px solid var(--border);border-radius:6px;padding:11px 13px;color:var(--primary);font-family:var(--mono);font-size:13px;outline:0;caret-color:var(--pink);}
+  #rdInput:focus{border-color:#3a3444;}
+  #rdInput::placeholder{color:var(--dim);opacity:.7;}
+  #rdGo{background:#211d29;border:1px solid var(--border);border-radius:6px;color:var(--primary);padding:0 24px;cursor:pointer;font-family:var(--mono);font-size:12.5px;}
+  #rdGo:hover{border-color:#3a3444;} #rdGo:disabled{opacity:.5;cursor:progress;}
+  .rd-empty{color:var(--dim);font-size:12.5px;padding:6px 0;line-height:1.6;}
+  .rd-empty.err{color:var(--dot-r);}
+  .rd-empty code{color:var(--output);background:#0d0b11;border:1px solid var(--border);border-radius:4px;padding:1px 6px;}
+  .rd-card{padding:20px;margin-bottom:14px;}
+  .rd-head{display:flex;gap:16px;align-items:flex-start;}
+  .rd-avatar{width:64px;height:64px;border-radius:10px;object-fit:cover;background:#0d0b11;border:1px solid var(--border);flex-shrink:0;}
+  .rd-avatar-ph{display:grid;place-items:center;color:var(--pink);font-size:20px;}
+  .rd-id{min-width:0;}
+  .rd-name{font-size:19px;color:var(--primary);font-weight:600;}
+  .rd-badges{display:flex;flex-wrap:wrap;gap:6px;margin:7px 0;}
+  .rd-badge{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#c4a7e7;border:1px solid #4a3d63;border-radius:4px;padding:2px 7px;}
+  .rd-badge.nsfw{color:var(--dot-r);border-color:#5a2e2e;}
+  .rd-bio{color:var(--output);font-size:12.5px;margin:6px 0;max-width:640px;}
+  .rd-link{color:var(--pink);font-size:11.5px;border-bottom:1px dotted #f472b644;}
+  .rd-link:hover{border-bottom-style:solid;}
+  .rd-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:8px;}
+  @media(max-width:720px){.rd-stats{grid-template-columns:repeat(2,1fr);}}
+  .rd-stat{padding:15px 16px;}
+  .rd-stat .n{font-size:22px;font-weight:700;line-height:1;margin-top:8px;color:var(--primary);}
+  .rd-stat .foot{color:var(--dim);font-size:10.5px;margin-top:7px;}
+  .rd-sec{margin-top:22px;}
+  .rd-sec>.plabel{margin-bottom:11px;}
+  .rd-chips{display:flex;flex-wrap:wrap;gap:7px;}
+  .rd-chip{font-size:11px;color:var(--output);background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:4px 9px;}
+  .rd-bars{display:flex;flex-direction:column;gap:6px;max-width:640px;}
+  .rd-bar{display:flex;align-items:center;gap:10px;}
+  .rd-bar .rb-name{color:var(--primary);font-size:12px;width:150px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .rd-bar:hover .rb-name{color:var(--pink);}
+  .rd-bar .rb-track{flex:1;height:9px;background:#0d0b11;border-radius:5px;overflow:hidden;}
+  .rd-bar .rb-fill{display:block;height:100%;background:linear-gradient(90deg,#7c5ba6,#f472b6);border-radius:5px;}
+  .rd-bar .rb-n{color:var(--dim);font-size:11px;width:28px;text-align:right;font-variant-numeric:tabular-nums;}
+  .rd-hist{display:flex;align-items:flex-end;gap:2px;height:66px;max-width:640px;}
+  .rd-hbar{flex:1;height:100%;display:flex;align-items:flex-end;background:#0d0b11;border-radius:2px;overflow:hidden;}
+  .rd-hbar>span{display:block;width:100%;background:var(--pink);opacity:.65;}
+  .rd-hist-x{display:flex;justify-content:space-between;max-width:640px;color:var(--dim);font-size:10px;margin-top:5px;}
+  .rd-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:22px;}
+  @media(max-width:820px){.rd-cols{grid-template-columns:1fr;}}
+  .rd-list{display:flex;flex-direction:column;}
+  .rd-item{display:block;padding:11px 0;border-top:1px solid var(--border);}
+  .rd-item:first-child{border-top:0;}
+  .rd-item .ri-title{color:var(--primary);font-size:12.5px;line-height:1.45;}
+  .rd-item .ri-body{color:var(--output);font-size:12px;line-height:1.5;}
+  .rd-item:hover .ri-title,.rd-item:hover .ri-body{color:var(--pink);}
+  .rd-item .ri-meta{color:var(--dim);font-size:10.5px;margin-top:5px;}
+  .rd-item .rd-nsfw{color:var(--dot-r);}
+
+  @media(max-width:900px){
+    .app{flex-direction:column;}
+    .sidebar{width:auto;height:auto;position:sticky;top:0;z-index:20;flex-direction:row;align-items:center;gap:6px;padding:9px 12px;border-right:0;border-bottom:1px solid var(--border);overflow-x:auto;}
+    .side-brand{border-bottom:0;border-right:1px solid var(--border);margin:0 6px 0 0;padding:0 12px 0 2px;}
+    .side-nav{flex-direction:row;}
+    .nav-item{padding:8px 11px;}
+    .nav-item.on{box-shadow:inset 0 -2px 0 var(--pink);}
+    .side-foot{display:none;}
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="app">
+  <aside class="sidebar">
+    <div class="side-brand">
+      <svg viewBox="95 205 620 425" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#bfa4e4" stroke-width="19" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M382 292 C268 300 158 366 122 452 C165 470 300 436 398 400"/>
+        <path d="M452 300 C566 306 652 372 690 448 C655 470 528 440 458 404"/>
+        <path d="M398 225 L398 612"/>
+        <path d="M402 392 L540 258"/>
+        <path d="M406 400 L536 600"/>
+      </svg>
+      <span class="sb-name">Kyther</span>
+    </div>
+    <nav class="side-nav">
+      <button class="nav-item on" data-view="home"><span class="ni-ico">⌂</span><span>Home</span></button>
+      <button class="nav-item" data-view="reddit"><span class="ni-ico">r/</span><span>Reddit</span></button>
+      <button class="nav-item" data-view="logs"><span class="ni-ico">≣</span><span>Logs</span></button>
+      <button class="nav-item" data-view="attacks"><span class="ni-ico">⚠</span><span>Cyber Attacks</span></button>
+    </nav>
+    <div class="side-foot">Kyther v0.2 · 19 analyzers</div>
+  </aside>
+  <main class="content">
+    <section id="view-home" class="view">
+      <div class="wrap">
   <header>
     <div class="logo">
       <svg viewBox="95 205 620 425" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#bfa4e4" stroke-width="19" stroke-linecap="round" stroke-linejoin="round">
@@ -208,6 +374,53 @@
       <div class="news-list" id="newsList"><div class="news-loading">loading feed…</div></div>
     </aside>
   </div>
+      </div><!-- /.wrap -->
+    </section>
+
+    <!-- Reddit view -->
+    <section id="view-reddit" class="view" hidden>
+      <div class="wrap">
+        <div class="view-head">
+          <h2>Reddit Search</h2>
+          <span class="vh-sub">public Reddit OSINT — profile, karma, cake day, top subreddits &amp; activity</span>
+        </div>
+        <div class="rd-search">
+          <input id="rdInput" placeholder="reddit username, e.g. Actual-Host-1830  (or a profile URL)" autocomplete="off" spellcheck="false" />
+          <button id="rdGo">Search</button>
+        </div>
+        <div id="rdResult"><div class="rd-empty">enter a Reddit username above to pull their public footprint.</div></div>
+      </div>
+    </section>
+
+    <!-- Logs view -->
+    <section id="view-logs" class="view" hidden>
+      <div class="wrap">
+        <div class="view-head">
+          <h2>Search Logs</h2>
+          <span class="vh-sub">every scan this browser has run — click one to see everything it captured</span>
+          <div class="vh-act"><button class="vh-btn" id="logsClearAll">clear all</button></div>
+        </div>
+        <div class="logs-layout">
+          <div class="logs-list" id="logsFull"></div>
+          <div class="logs-detail" id="logsDetail"><div class="ld-empty">select a search on the left to view its full details.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cyber Attacks view -->
+    <section id="view-attacks" class="view" hidden>
+      <div class="wrap">
+        <div class="view-head">
+          <h2>Cyber Attacks</h2>
+          <span class="vh-sub">live feed of breaches, exploits &amp; incidents</span>
+          <div class="vh-act"><button class="vh-btn" id="attacksRefresh">refresh</button></div>
+        </div>
+        <div class="panel" style="padding:6px 18px;">
+          <div class="attacks-list" id="attacksList"><div class="news-loading">loading feed…</div></div>
+        </div>
+      </div>
+    </section>
+  </main>
 </div>
 
 <script>
@@ -227,7 +440,7 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 
 function put(html,cls){ const d=document.createElement("div"); d.className="line "+(cls||""); d.innerHTML=html; term.appendChild(d); term.scrollTop=term.scrollHeight; return d; }
 function banner(){
-  put('<span class="ok">Kyther</span> <span class="info">v0.2 — 18 analyzers online</span>');
+  put('<span class="ok">Kyther</span> <span class="info">v0.2 — 19 analyzers online</span>');
   put('<span class="info">type a command, or use Quick Search below. `help` for options.</span>');
   put('&nbsp;');
 }
@@ -235,6 +448,11 @@ function banner(){
 const store={ get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}}, set:(k,v)=>localStorage.setItem(k,JSON.stringify(v)) };
 let stats=store.get("kyther_stats",{scanned:0,found:0,hits:0,threat:"LOW"});
 let log=store.get("kyther_log",[]);
+// Backfill ids for entries logged before detail-capture existed, so they can
+// still be opened in the Logs view (they'll show the "no saved detail" note).
+let _mig=false;
+log.forEach((e,i)=>{ if(!e.id){ e.id="s"+(e.ts||0).toString(36)+"i"+i+Math.random().toString(36).slice(2,5); _mig=true; } });
+if(_mig) store.set("kyther_log",log);
 
 function renderStats(){
   $("#stScanned").textContent=stats.scanned;
@@ -257,13 +475,32 @@ function renderLog(){
   const el=$("#logList");
   if(!log.length){ el.innerHTML='<div class="log-empty">no searches yet — run a command above.</div>'; return; }
   el.innerHTML=log.slice(0,25).map(e=>
-    `<div class="log-item"><span class="log-time">${esc(e.time)}</span><span class="log-cmd"><span class="t">--${esc(e.type)}</span> ${esc(e.value)}</span><span class="log-res">${esc(e.result)}</span></div>`
+    `<div class="log-item" data-id="${esc(e.id||"")}"><span class="log-time">${esc(e.time)}</span><span class="log-cmd"><span class="t">--${esc(e.type)}</span> ${esc(e.value)}</span><span class="log-res">${esc(e.result)}</span></div>`
   ).join("");
 }
-function addLog(type,value,result){
-  log.unshift({time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}),type,value,result});
-  log=log.slice(0,60); store.set("kyther_log",log); renderLog();
+function addLog(type,value,result,detail){
+  const id="s"+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  log.unshift({id, ts:Date.now(), time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}),type,value,result});
+  log=log.slice(0,60); store.set("kyther_log",log);
+  if(detail) saveDetail(id,detail);
+  renderLog();
+  if(!$("#view-logs").hidden) renderLogsFull();
 }
+// Persist the full scan result for a log entry so Logs can show every detail
+// later. localStorage is small, so keep only the 15 most-recent searches'
+// details and evict oldest on quota overflow.
+function saveDetail(id,d){
+  let det=store.get("kyther_details",{});
+  det[id]=d;
+  const keep=new Set(log.slice(0,15).map(e=>e.id));
+  for(const k of Object.keys(det)) if(!keep.has(k)) delete det[k];
+  try{ store.set("kyther_details",det); }
+  catch(_){
+    const ids=log.slice(0,15).map(e=>e.id).filter(k=>det[k]);
+    while(ids.length){ delete det[ids.pop()]; try{ store.set("kyther_details",det); break; }catch(__){} }
+  }
+}
+function getDetail(id){ return store.get("kyther_details",{})[id]||null; }
 
 const TYPES=["username","email","domain","ip","phone","person","company"];
 async function runSearch(type,value){
@@ -364,7 +601,7 @@ function updateFromResult(d,type,value){
   stats.scanned++; if(hit)stats.hits++; stats.found+=n;
   stats.risk = (d.dossier && d.dossier.risk) || stats.risk || null;
   store.set("kyther_stats",stats); renderStats();
-  addLog(type,value,hit?`${n} accounts`:"no hits");
+  addLog(type,value,hit?`${n} accounts`:"no hits",d);
 }
 
 function handleCommand(raw){
@@ -419,14 +656,175 @@ async function generateReport(){
 $("#reportBtn").addEventListener("click", generateReport);
 
 function ago(ts){ if(!ts)return""; const s=Date.now()/1000-ts; if(s<3600)return Math.round(s/60)+"m"; if(s<86400)return Math.round(s/3600)+"h"; return Math.round(s/86400)+"d"; }
+let NEWS=[];
 async function loadNews(){
   try{
-    const r=await fetch(API+"/api/news"); const items=await r.json();
+    const r=await fetch(API+"/api/news"); NEWS=await r.json();
     const el=$("#newsList");
-    if(!items.length){ el.innerHTML='<div class="news-loading">feed unavailable.</div>'; return; }
-    el.innerHTML=items.map(n=>`<a class="news-item" href="${esc(n.url)}" target="_blank" rel="noopener"><div class="t">${esc(n.title)}</div><div class="m">${esc(n.source)} · ${esc(ago(n.ts))}</div></a>`).join("");
+    if(!NEWS.length){ el.innerHTML='<div class="news-loading">feed unavailable.</div>'; }
+    else el.innerHTML=NEWS.map(n=>`<a class="news-item" href="${esc(n.url)}" target="_blank" rel="noopener"><div class="t">${esc(n.title)}</div><div class="m">${esc(n.source)} · ${esc(ago(n.ts))}</div></a>`).join("");
   }catch{ $("#newsList").innerHTML='<div class="news-loading">feed unavailable.</div>'; }
+  renderAttacks();
 }
+function renderAttacks(){
+  const el=$("#attacksList"); if(!el) return;
+  if(!NEWS.length){ el.innerHTML='<div class="news-loading">feed unavailable.</div>'; return; }
+  el.innerHTML=NEWS.map((n,i)=>`<a class="attack-item" href="${esc(n.url)}" target="_blank" rel="noopener"><div class="ai-idx">${String(i+1).padStart(2,"0")}</div><div class="ai-body"><div class="ai-title">${esc(n.title)}</div><div class="ai-meta">${esc(n.source)} · ${esc(ago(n.ts))} ago</div></div><div class="ai-arrow">↗</div></a>`).join("");
+}
+
+// ---------- Side navigation / view switching ----------
+let selectedLogId=null;
+function showView(v){
+  document.querySelectorAll(".view").forEach(s=>{ s.hidden = s.id!=="view-"+v; });
+  document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
+  if(v==="logs") renderLogsFull();
+  if(v==="attacks") renderAttacks();
+  if(v==="reddit") $("#rdInput").focus();
+  window.scrollTo(0,0);
+}
+function setType(t){ if(!TYPES.includes(t)) return; TYPE=t; document.querySelectorAll(".qs-btn").forEach(x=>x.classList.toggle("on",x.dataset.type===t)); }
+document.querySelector(".side-nav").addEventListener("click",e=>{ const b=e.target.closest(".nav-item"); if(b) showView(b.dataset.view); });
+
+// ---------- Logs view ----------
+function renderLogsFull(){
+  const el=$("#logsFull"); if(!el) return;
+  if(!log.length){ el.innerHTML='<div class="ld-empty">no searches yet.</div>'; $("#logsDetail").innerHTML='<div class="ld-empty">run a search from Home to see it here.</div>'; return; }
+  el.innerHTML=log.map(e=>`<div class="log-row${e.id===selectedLogId?" on":""}" data-id="${esc(e.id)}"><div class="lr-top"><span class="lr-val">${esc(e.value)}</span><span class="lr-type">--${esc(e.type)}</span></div><div class="lr-meta"><span>${esc(e.time)}</span><span>·</span><span>${esc(e.result)}</span></div></div>`).join("");
+}
+function selectLog(id){
+  selectedLogId=id; renderLogsFull();
+  const entry=log.find(e=>e.id===id), box=$("#logsDetail");
+  box.innerHTML = entry ? detailHTML(entry) : '<div class="ld-empty">not found.</div>';
+  box.scrollTop=0;
+}
+function riskColor(tier){ return (tier==="Critical"||tier==="High")?"var(--dot-r)":tier==="Medium"?"var(--dot-y)":"var(--green)"; }
+function detailHTML(entry){
+  const head=`<div class="ld-h"><div><div class="ld-h-val">${esc(entry.value)}</div><div class="ld-h-meta"><span class="lr-type">--${esc(entry.type)}</span> · ${esc(entry.time)} · ${esc(entry.result)}</div></div><div class="ld-actions"><button class="ld-btn run" data-type="${esc(entry.type)}" data-value="${esc(entry.value)}">▷ Run command again</button><button class="ld-btn again" data-type="${esc(entry.type)}" data-value="${esc(entry.value)}">⌕ Search again</button></div></div>`;
+  const d=getDetail(entry.id);
+  if(!d) return head + `<div class="ld-sec"><div class="ld-empty">Full details weren't saved for this search (it predates detail capture, or the scan errored). Hit “Run command again” to re-scan and capture everything.</div></div>`;
+  const findings=d.findings||[], catf=c=>findings.filter(f=>f.category===c);
+  const accounts=dedupe(catf("accounts").flatMap(f=>f.data.profiles||[]));
+  const dos=d.dossier||{}, risk=dos.risk;
+  const infra=catf("infrastructure"), timeline=d.timeline||[];
+  const breachesArr=catf("breaches").flatMap(f=>f.data.breaches||[]);
+  const sec=(label,html)=>html?`<div class="ld-sec"><div class="plabel">${label}</div><div class="ld-body">${html}</div></div>`:"";
+
+  let riskHtml="";
+  if(risk){ riskHtml=`<div class="ld-risk" style="color:${riskColor(risk.tier)}">${esc(risk.tier)} · ${risk.score}/100</div>`+(risk.factors||[]).map(f=>`<div class="rf"><span class="lbl">${esc(f.label)}</span><span class="pts">+${f.points}</span></div>`).join(""); }
+
+  const idb=[];
+  if(dos.primary_name) idb.push(`<div class="ld-kv"><span class="kv">name</span><span class="val">${esc(dos.primary_name)}</span></div>`);
+  if((dos.locations||[]).length) idb.push(`<div class="ld-kv"><span class="kv">location</span><span class="val">${esc(dos.locations.join(", "))}</span></div>`);
+  if((dos.companies||[]).length) idb.push(`<div class="ld-kv"><span class="kv">org</span><span class="val">${esc(dos.companies.join(", "))}</span></div>`);
+
+  const emails=(dos.emails||[]).map(e=>`<div class="ld-kv"><span class="val">${esc(e.email)}</span>${e.noreply?' <span class="info">(noreply)</span>':""}</div>`).join("");
+
+  let acc="";
+  if(accounts.length){
+    const conf=accounts.filter(p=>(p.confidence||"possible")==="confirmed");
+    const unv=accounts.filter(p=>(p.confidence||"possible")!=="confirmed");
+    acc+=`<div class="ld-accsum"><span class="ok">${conf.length} verified</span> <span class="kv">·</span> <span class="info">${unv.length} unverified</span> <span class="kv">·</span> ${accounts.length} total</div>`;
+    if(conf.length){
+      const g={}; conf.forEach(p=>{const k=(p.category||"other").replace(/xx/gi,"").trim()||"other";(g[k]=g[k]||[]).push(p);});
+      acc+=Object.entries(g).sort((a,b)=>b[1].length-a[1].length).map(([c,ps])=>`<div class="ld-accrow"><span class="kv">${esc(c)}:</span> ${ps.map(p=>`<a class="match" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.platform)}</a>`).join(" ")}</div>`).join("");
+    }
+    if(unv.length){
+      acc+=`<details class="ld-unv"><summary>show ${unv.length} unverified (status-code guesses — some don't exist)</summary><div class="ld-unv-links">${unv.map(p=>`<a class="unv-link" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.platform)}</a>`).join(" ")}</div></details>`;
+    }
+  }
+
+  const infraHtml=infra.map(f=>`<div class="ld-kv"><span class="kv">${esc(f.analyzer)}</span><span class="val">${esc(f.title)}</span></div>`).join("");
+  const tlHtml=timeline.map(t=>`<div class="ld-kv"><span class="kv">${esc(t.date||t.time||t.year||"—")}</span><span class="val">${esc(t.label||t.title||t.event||t.description||JSON.stringify(t))}</span>${t.source?` <span class="info">(${esc(t.source)})</span>`:""}</div>`).join("");
+  const brHtml=breachesArr.length?breachesArr.map(b=>`<div class="ld-kv"><span class="val">${esc(b.name||b.Name||b.title||"breach")}</span> <span class="info">${esc(b.date||b.BreachDate||"")}</span></div>`).join(""):"";
+  const raw=`<details class="ld-raw"><summary>raw capture (full JSON)</summary><pre class="ld-pre">${esc(JSON.stringify(d,null,2))}</pre></details>`;
+
+  const body=sec("Risk",riskHtml)+sec("Identity",idb.join(""))+sec("Emails",emails)+sec("Accounts",acc)+sec("Infrastructure",infraHtml)+sec("Timeline",tlHtml)+sec("Breaches",brHtml)+sec("Full capture",raw);
+  return head + (body || `<div class="ld-sec"><div class="ld-empty">no findings were captured for this search.</div></div>`);
+}
+$("#logsFull").addEventListener("click",e=>{ const r=e.target.closest(".log-row"); if(r) selectLog(r.dataset.id); });
+$("#logsDetail").addEventListener("click",e=>{
+  const run=e.target.closest(".ld-btn.run"), again=e.target.closest(".ld-btn.again");
+  if(run){ showView("home"); setType(run.dataset.type); runSearch(run.dataset.type,run.dataset.value); }
+  else if(again){ showView("home"); setType(again.dataset.type); $("#qval").value=again.dataset.value; $("#qval").focus(); }
+});
+$("#logsClearAll").addEventListener("click",()=>{ log=[]; store.set("kyther_log",log); store.set("kyther_details",{}); selectedLogId=null; renderLog(); renderLogsFull(); });
+$("#logList").addEventListener("click",e=>{ const it=e.target.closest(".log-item"); if(it&&it.dataset.id){ showView("logs"); selectLog(it.dataset.id); } });
+$("#attacksRefresh").addEventListener("click",loadNews);
+
+// ---------- Reddit view ----------
+let rdBusy=false;
+async function runReddit(raw){
+  if(rdBusy) return;
+  const u=(raw||"").trim(); if(!u) return;
+  rdBusy=true; $("#rdGo").disabled=true;
+  $("#rdResult").innerHTML='<div class="rd-empty">searching Reddit<span class="blink">_</span></div>';
+  try{
+    const r=await fetch(API+"/api/reddit?u="+encodeURIComponent(u));
+    renderReddit(await r.json());
+  }catch(e){
+    $("#rdResult").innerHTML='<div class="rd-empty err">lookup failed: '+esc(e.message)+'</div>';
+  }finally{ rdBusy=false; $("#rdGo").disabled=false; }
+}
+function renderReddit(d){
+  const box=$("#rdResult");
+  if(!d || !d.found){
+    if(d && d.needs_key){
+      box.innerHTML=`<div class="rd-empty">Reddit no longer allows anonymous profile reads, so this needs a <b>free</b> Reddit API client id (no cost, ~1&nbsp;min):<br><br>`+
+        `1. open <a class="rd-link" href="https://www.reddit.com/prefs/apps" target="_blank" rel="noopener">reddit.com/prefs/apps</a> → <b>create another app</b><br>`+
+        `2. choose type <code>installed app</code>, set redirect uri to <code>http://localhost</code>, create it<br>`+
+        `3. copy the id shown <i>under the app's name</i> (a short string)<br>`+
+        `4. restart the server with it set:<br><br><code>REDDIT_CLIENT_ID=&lt;your-id&gt; uvicorn kyther.api:app --port 8099</code></div>`;
+    } else {
+      box.innerHTML=`<div class="rd-empty ${d&&(d.error==='blocked'||d.error==='auth_failed')?'err':''}">${esc((d&&d.message)||"No public Reddit account found.")}</div>`;
+    }
+    return;
+  }
+  if(d.suspended){ box.innerHTML=`<div class="rd-empty err">${esc(d.message)} <a class="rd-link" href="${esc(d.url)}" target="_blank" rel="noopener">view profile ↗</a></div>`; return; }
+
+  const k=d.karma||{}, fl=d.flags||{};
+  const num=n=>(n==null?"—":Number(n).toLocaleString());
+  const badge=(on,label,cls)=>on?`<span class="rd-badge ${cls||""}">${label}</span>`:"";
+  const badges=[badge(fl.gold,"gold"),badge(fl.mod,"mod"),badge(fl.employee,"admin"),
+                badge(fl.verified_email,"verified email"),badge(fl.nsfw,"NSFW","nsfw")].join("");
+  const stat=(lbl,val,foot)=>`<div class="panel rd-stat"><div class="plabel">${lbl}</div><div class="n">${val}</div>${foot?`<div class="foot">${esc(foot)}</div>`:""}</div>`;
+
+  const acts=(d.counts&&(d.counts.posts_fetched||0)+(d.counts.comments_fetched||0))||0;
+  const maxSub=Math.max(1,...(d.top_subreddits||[]).map(s=>s.count));
+  const subs=(d.top_subreddits||[]).map(s=>`<a class="rd-bar" href="https://www.reddit.com/r/${encodeURIComponent(s.subreddit)}" target="_blank" rel="noopener"><span class="rb-name">r/${esc(s.subreddit)}</span><span class="rb-track"><span class="rb-fill" style="width:${Math.round(s.count/maxSub*100)}%"></span></span><span class="rb-n">${s.count}</span></a>`).join("");
+  const maxH=Math.max(1,...(d.activity_by_hour||[0]));
+  const hours=(d.activity_by_hour||[]).map((n,i)=>`<span class="rd-hbar" title="${i}:00 UTC — ${n} actions"><span style="height:${Math.round(n/maxH*100)}%"></span></span>`).join("");
+  const trophies=(d.trophies||[]).length?`<div class="rd-sec"><div class="plabel">Trophies</div><div class="rd-chips">${d.trophies.map(t=>`<span class="rd-chip">${esc(t)}</span>`).join("")}</div></div>`:"";
+  const posts=(d.recent_posts||[]).map(p=>`<a class="rd-item" href="${esc(p.url)}" target="_blank" rel="noopener"><div class="ri-title">${esc(p.title||"(untitled)")}</div><div class="ri-meta">r/${esc(p.subreddit)} · ↑${num(p.score)} · ${num(p.num_comments)} comments · ${esc((p.created||"").slice(0,10))}${p.nsfw?' · <span class="rd-nsfw">NSFW</span>':""}</div></a>`).join("")||'<div class="rd-empty">no public posts.</div>';
+  const cmts=(d.recent_comments||[]).map(c=>`<a class="rd-item" href="${esc(c.url)}" target="_blank" rel="noopener"><div class="ri-body">${esc(c.body||"")}</div><div class="ri-meta">r/${esc(c.subreddit)} · ↑${num(c.score)} · ${esc((c.created||"").slice(0,10))}</div></a>`).join("")||'<div class="rd-empty">no public comments.</div>';
+
+  box.innerHTML=`
+    <div class="panel rd-card">
+      <div class="rd-head">
+        ${d.avatar?`<img class="rd-avatar" src="${esc(d.avatar)}" alt="" referrerpolicy="no-referrer">`:`<div class="rd-avatar rd-avatar-ph">r/</div>`}
+        <div class="rd-id">
+          <div class="rd-name">u/${esc(d.username)}</div>
+          <div class="rd-badges">${badges||'<span class="info" style="font-size:11px">no special flags</span>'}</div>
+          ${d.bio?`<div class="rd-bio">${esc(d.bio)}</div>`:""}
+          <a class="rd-link" href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.url)} ↗</a>
+        </div>
+      </div>
+    </div>
+    <div class="rd-stats">
+      ${stat("Total Karma",num(k.total))}
+      ${stat("Post Karma",num(k.post))}
+      ${stat("Comment Karma",num(k.comment))}
+      ${stat("Cake Day",esc(d.created||"—"),d.age_days!=null?(d.age_days/365).toFixed(1)+" yrs on Reddit":"")}
+    </div>
+    ${trophies}
+    ${subs?`<div class="rd-sec"><div class="plabel">Top subreddits <span class="info">(from last ${acts} actions)</span></div><div class="rd-bars">${subs}</div></div>`:""}
+    ${(d.activity_by_hour||[]).some(n=>n)?`<div class="rd-sec"><div class="plabel">Activity by hour <span class="info">(UTC)</span></div><div class="rd-hist">${hours}</div><div class="rd-hist-x"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div></div>`:""}
+    <div class="rd-cols">
+      <div class="rd-sec" style="margin-top:0"><div class="plabel">Recent posts</div><div class="rd-list">${posts}</div></div>
+      <div class="rd-sec" style="margin-top:0"><div class="plabel">Recent comments</div><div class="rd-list">${cmts}</div></div>
+    </div>`;
+}
+$("#rdGo").addEventListener("click",()=>runReddit($("#rdInput").value));
+$("#rdInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runReddit($("#rdInput").value); });
 
 banner(); renderStats(); renderLog(); loadNews(); cmdIn.focus();
 </script>
