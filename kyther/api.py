@@ -370,11 +370,14 @@ def _as_list(v) -> list:
 def _trim_actor(v: dict) -> dict:
     m = v.get("meta") or {}
     targets = _as_list(m.get("cfr-target-category")) or _as_list(m.get("targeted-sector"))
+    motive = m.get("cfr-type-of-incident")
+    if isinstance(motive, list):
+        motive = " / ".join(str(x) for x in motive if x) or None
     return {
         "name": (v.get("value") or "").strip(),
         "description": (v.get("description") or "").strip()[:800],
         "aliases": [a for a in _as_list(m.get("synonyms")) if a][:12],
-        "motive": m.get("cfr-type-of-incident"),
+        "motive": motive,
         "origin": m.get("country"),
         "sponsor": m.get("cfr-suspected-state-sponsor"),
         "targets": [t for t in targets if t][:6],

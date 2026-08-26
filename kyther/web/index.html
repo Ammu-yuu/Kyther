@@ -252,6 +252,50 @@
   .th-d-atk .d{color:var(--dim);width:86px;flex-shrink:0;font-variant-numeric:tabular-nums;}
   .th-d-atk .v{color:var(--primary);}
 
+  /* ---- Threat Actors: dossier cards, gallery, spotlight, filters, modal ---- */
+  .th-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
+  .th-chip{background:var(--bar);border:1px solid var(--border);border-radius:20px;padding:5px 14px;color:var(--dim);cursor:pointer;font-family:var(--mono);font-size:11.5px;transition:.12s;}
+  .th-chip:hover{color:var(--primary);}
+  .th-chip.on{color:var(--primary);border-color:var(--pink);background:#211d29;}
+  /* motive accent, shared by cards + spotlight (default = dim) */
+  .m-none{--acc:var(--dim);} .m-espionage{--acc:#c4a7e7;} .m-financial{--acc:var(--dot-y);}
+  .m-sabotage{--acc:var(--dot-r);} .m-hacktivism{--acc:var(--green);}
+  .d-stripe{height:4px;background:var(--acc,var(--dim));}
+  /* gallery grid of case-file cards */
+  .th-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:14px;}
+  .dossier{position:relative;background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;transition:.14s;display:flex;flex-direction:column;}
+  .dossier:hover{border-color:var(--acc,#3a3444);transform:translateY(-2px);}
+  .d-head{display:flex;justify-content:space-between;align-items:center;padding:9px 13px 0;font-size:9.5px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;}
+  .d-case{color:var(--acc,var(--dim));}
+  .d-body{padding:9px 13px 13px;flex:1;display:flex;flex-direction:column;gap:9px;}
+  .d-name{color:var(--primary);font-size:15px;font-weight:600;line-height:1.2;}
+  .d-tags{display:flex;gap:5px;flex-wrap:wrap;}
+  .d-rating{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;}
+  .d-meter{display:inline-flex;gap:3px;}
+  .d-meter i{width:16px;height:6px;border-radius:2px;background:#2a2532;display:block;}
+  .d-meter i.on{background:var(--acc,var(--pink));}
+  .d-foot{display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--dim);margin-top:auto;gap:8px;}
+  .d-active{color:var(--dot-r);font-weight:600;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
+  .d-active::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--dot-r);animation:thpulse 1.4s infinite;}
+  @keyframes thpulse{0%,100%{opacity:1;}50%{opacity:.25;}}
+  .th-more{grid-column:1/-1;color:var(--dim);font-size:11.5px;padding:12px 2px 2px;text-align:center;}
+  /* spotlight — featured dossier */
+  #thSpotlight:not(:empty){margin-bottom:18px;}
+  .spotlight{position:relative;overflow:hidden;cursor:pointer;transition:.14s;}
+  .spotlight:hover{border-color:var(--acc,#3a3444);}
+  .spotlight .sp-inner{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:24px;padding:16px 22px 20px;}
+  @media(max-width:720px){.spotlight .sp-inner{grid-template-columns:1fr;gap:14px;}}
+  .sp-label{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--acc,var(--pink));}
+  .sp-name{font-size:24px;font-weight:700;color:var(--primary);font-family:var(--brand);margin:7px 0 10px;line-height:1.1;}
+  .sp-desc{color:var(--output);font-size:12.5px;line-height:1.6;}
+  .sp-open{color:var(--pink);font-size:11.5px;margin-top:11px;}
+  /* modal */
+  .th-modal{position:fixed;inset:0;background:rgba(8,6,11,.74);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:6vh 20px 40px;overflow-y:auto;}
+  .th-modal[hidden]{display:none;}
+  .th-modal-inner{position:relative;width:100%;max-width:720px;border-color:#3a3444;padding:26px 28px;}
+  .th-modal-x{position:absolute;top:12px;right:14px;background:none;border:0;color:var(--dim);font-size:16px;cursor:pointer;line-height:1;}
+  .th-modal-x:hover{color:var(--primary);}
+
   /* ---- Reddit view ---- */
   .rd-search{display:flex;gap:10px;margin-bottom:22px;max-width:600px;}
   #rdInput{flex:1;background:#0d0b11;border:1px solid var(--border);border-radius:6px;padding:11px 13px;color:var(--primary);font-family:var(--mono);font-size:13px;outline:0;caret-color:var(--pink);}
@@ -487,12 +531,19 @@
         <div class="th-sec">
           <div class="th-actors-head">
             <div class="plabel">Threat actors <span class="info" id="thActorMeta"></span></div>
-            <input id="thSearch" placeholder="filter — name, alias, motive, country…" autocomplete="off" spellcheck="false" />
+            <input id="thSearch" placeholder="search — name, alias, motive, country…" autocomplete="off" spellcheck="false" />
           </div>
-          <div class="th-actors-grid">
-            <div class="th-actor-list" id="thActorList"><div class="rd-empty">loading…</div></div>
-            <div class="panel th-actor-detail" id="thActorDetail"><div class="rd-empty">select a threat actor to see its profile, motive &amp; recent activity.</div></div>
-          </div>
+          <div class="th-filters" id="thFilters"></div>
+          <div id="thSpotlight"></div>
+          <div class="th-gallery" id="thGallery"><div class="rd-empty">loading threat actors…</div></div>
+        </div>
+      </div>
+
+      <!-- actor dossier modal -->
+      <div class="th-modal" id="thModal" hidden>
+        <div class="th-modal-inner panel">
+          <button class="th-modal-x" id="thModalX" aria-label="close">✕</button>
+          <div id="thModalBody"></div>
         </div>
       </div>
     </section>
@@ -901,83 +952,172 @@ function renderReddit(d){
 $("#rdGo").addEventListener("click",()=>runReddit($("#rdInput").value));
 $("#rdInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runReddit($("#rdInput").value); });
 
-// ---------- Threat Actors view ----------
-let THREATS=null, threatsBusy=false, selectedActor=null;
+// ---------- Threat Actors view (classified-dossier card gallery) ----------
+let THREATS=null, threatsBusy=false, thMotive="all";
 const _norm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+let _activeGroups=new Set();
+
+function motiveCat(m){
+  const s=String(m||"").toLowerCase();
+  if(s.includes("espionage")) return "espionage";
+  if(s.includes("financial")||s.includes("theft")) return "financial";
+  if(s.includes("hacktivism")||s.includes("ideolog")) return "hacktivism";
+  if(s.includes("sabotage")||s.includes("destruction")||s.includes("denial")) return "sabotage";
+  return "";
+}
+// Heuristic 1–5 threat rating — NOT an official score; labelled as such in the UI.
+function threatRating(a){
+  let s=1;
+  if(a._cat==="espionage"||a._cat==="sabotage") s+=2;
+  else if(a._cat==="financial") s+=1;
+  if(a.sponsor) s+=1;
+  if(a._active) s+=1;
+  if((a.aliases||[]).length>=6) s+=1;
+  return Math.max(1,Math.min(5,s));
+}
+function caseId(name){ let h=0; for(const c of (name||"")) h=(h*31+c.charCodeAt(0))>>>0; return "CF-"+String(h%9000+1000); }
+function meter(n){ let s=""; for(let i=0;i<5;i++) s+=`<i class="${i<n?'on':''}"></i>`; return `<span class="d-meter">${s}</span>`; }
+function motiveTags(a){
+  const tags=[];
+  if(a.motive) tags.push(`<span class="mtag ${a._cat||''}">${esc(a.motive)}</span>`);
+  if(a.origin) tags.push(`<span class="mtag origin">${esc(a.origin)}</span>`);
+  return tags.join("");
+}
+
 async function loadThreats(force){
   if(threatsBusy) return;
   if(THREATS && !force){ renderThreats(); return; }
   threatsBusy=true;
   $("#thTimeline").innerHTML='<div class="rd-empty">loading live attack feed…</div>';
-  $("#thActorList").innerHTML='<div class="rd-empty">loading threat actors…</div>';
+  $("#thGallery").innerHTML='<div class="rd-empty">loading threat actors…</div>';
   try{
-    const r=await fetch(API+"/api/threats");
-    THREATS=await r.json();
+    const r=await fetch(API+"/api/threats"); THREATS=await r.json();
+    _activeGroups=new Set((THREATS.attacks||[]).map(x=>_norm(x.group)));
+    (THREATS.actors||[]).forEach(a=>{
+      a._cat=motiveCat(a.motive);
+      a._active=[_norm(a.name),...(a.aliases||[]).map(_norm)].some(k=>k && _activeGroups.has(k));
+      a._rating=threatRating(a);
+    });
     renderThreats();
   }catch(e){
     $("#thTimeline").innerHTML='<div class="rd-empty err">feed unavailable: '+esc(e.message)+'</div>';
-    $("#thActorList").innerHTML='';
+    $("#thGallery").innerHTML='';
   }finally{ threatsBusy=false; }
 }
+
 function renderThreats(){
   const t=THREATS||{}, attacks=t.attacks||[], actors=t.actors||[];
   $("#thAttackMeta").textContent = attacks.length?`· ${attacks.length} latest, newest first`:"";
-  $("#thActorMeta").textContent = actors.length?`· ${actors.length} tracked`:"";
-  // Live attack timeline
+  const activeN=actors.filter(a=>a._active).length;
+  $("#thActorMeta").textContent = actors.length?`· ${actors.length} tracked${activeN?` · ${activeN} active now`:""}`:"";
   $("#thTimeline").innerHTML = attacks.length ? attacks.map(a=>{
     const victim = a.url ? `<a class="ta-victim" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.victim||"—")}</a>` : `<span class="ta-victim">${esc(a.victim||"—")}</span>`;
     const meta=[a.country,a.sector].filter(Boolean).map(esc).join(" · ");
     return `<div class="th-atk"><span class="ta-date">${esc(a.date||"")}</span><span class="ta-group">${esc(a.group||"?")}</span>${victim}<span class="ta-meta">${meta}</span></div>`;
   }).join("") : '<div class="rd-empty">feed unavailable.</div>';
-  renderActorList("");
-  if($("#thSearch")) $("#thSearch").value="";
+  renderFilters(); renderSpotlight(); renderGallery();
 }
-function motiveTags(a){
-  const tags=[];
-  if(a.motive){ const cls=_norm(a.motive).replace(/crime|attack/g,""); tags.push(`<span class="mtag ${cls}">${esc(a.motive)}</span>`); }
-  if(a.origin){ tags.push(`<span class="mtag origin">${esc(a.origin)}</span>`); }
-  return tags.join("");
+
+function renderFilters(){
+  const cats=[["all","All"],["active","Active now"],["espionage","Espionage"],["financial","Financial"],["hacktivism","Hacktivism"],["sabotage","Sabotage"]];
+  $("#thFilters").innerHTML=cats.map(([k,l])=>`<span class="th-chip${thMotive===k?" on":""}" data-k="${k}">${l}</span>`).join("");
 }
-function renderActorList(q){
+
+function currentActors(){
   const actors=(THREATS&&THREATS.actors)||[];
-  const nq=_norm(q);
-  const list = nq ? actors.filter(a=>{
-    return _norm(a.name).includes(nq) || _norm(a.motive).includes(nq) || _norm(a.origin).includes(nq)
-        || _norm(a.sponsor).includes(nq) || (a.aliases||[]).some(x=>_norm(x).includes(nq));
-  }) : actors;
-  const el=$("#thActorList");
-  if(!list.length){ el.innerHTML='<div class="rd-empty">no actors match.</div>'; return; }
-  el.innerHTML=list.slice(0,400).map(a=>`<div class="th-actor${a.name===selectedActor?' on':''}" data-name="${esc(a.name)}"><div class="ta-name">${esc(a.name)}</div><div class="ta-tags">${motiveTags(a)}</div></div>`).join("");
+  const nq=_norm($("#thSearch")?$("#thSearch").value:"");
+  return actors.filter(a=>{
+    if(thMotive==="active" && !a._active) return false;
+    if(thMotive!=="all" && thMotive!=="active" && a._cat!==thMotive) return false;
+    if(nq){
+      const hay=_norm(a.name)+_norm(a.motive)+_norm(a.origin)+_norm(a.sponsor)+(a.aliases||[]).map(_norm).join("");
+      if(!hay.includes(nq)) return false;
+    }
+    return true;
+  });
 }
-function selectActor(name){
-  selectedActor=name;
-  const a=((THREATS&&THREATS.actors)||[]).find(x=>x.name===name);
-  renderActorList($("#thSearch").value);
-  const box=$("#thActorDetail");
-  if(!a){ box.innerHTML='<div class="rd-empty">not found.</div>'; return; }
-  // "what they represent" — origin + state sponsor
+
+function dossierCard(a){
+  return `<div class="dossier m-${a._cat||'none'}" data-name="${esc(a.name)}">
+    <div class="d-stripe"></div>
+    <div class="d-head"><span>Case File</span><span class="d-case">${caseId(a.name)}</span></div>
+    <div class="d-body">
+      <div class="d-name">${esc(a.name)}</div>
+      <div class="d-tags">${motiveTags(a)||'<span class="mtag">unclassified</span>'}</div>
+      <div class="d-rating">Threat ${meter(a._rating)}</div>
+      <div class="d-foot"><span>${a.sponsor?esc(a.sponsor):(a.origin?'origin '+esc(a.origin):'')}</span>${a._active?'<span class="d-active">Active</span>':''}</div>
+    </div>
+  </div>`;
+}
+
+function renderGallery(){
+  const list=currentActors().slice();
+  list.sort((x,y)=> (y._active-x._active) || (y._rating-x._rating) || ((x.motive?0:1)-(y.motive?0:1)) || String(x.name).localeCompare(String(y.name)));
+  const CAP=150, shown=list.slice(0,CAP), el=$("#thGallery");
+  if(!shown.length){ el.innerHTML='<div class="rd-empty">no actors match this filter.</div>'; return; }
+  el.innerHTML=shown.map(dossierCard).join("") + (list.length>CAP?`<div class="th-more">showing top ${CAP} of ${list.length} — refine with search or a filter</div>`:"");
+}
+
+function renderSpotlight(){
+  const actors=(THREATS&&THREATS.actors)||[];
+  const pool=actors.filter(a=>a.motive && a.description && (a.aliases||[]).length>=3);
+  const src=pool.length?pool:actors.filter(a=>a.description);
+  if(!src.length){ $("#thSpotlight").innerHTML=""; return; }
+  const a=src[Math.floor(Date.now()/86400000)%src.length];   // deterministic per day
+  $("#thSpotlight").innerHTML=`<div class="panel spotlight m-${a._cat||'none'}" data-name="${esc(a.name)}">
+    <div class="d-stripe"></div>
+    <div class="sp-inner">
+      <div class="sp-l">
+        <div class="sp-label">Featured dossier · actor of the day</div>
+        <div class="sp-name">${esc(a.name)}</div>
+        <div class="th-d-tags">${motiveTags(a)}${a._active?' <span class="d-active">Active now</span>':''}</div>
+        <div class="d-rating" style="margin-top:10px">Threat ${meter(a._rating)}</div>
+      </div>
+      <div class="sp-r">
+        <div class="sp-desc">${esc((a.description||"").slice(0,340))}${(a.description||"").length>340?'…':''}</div>
+        <div class="sp-open">open full case file ↗</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function actorDetailHTML(a){
   const rep=[];
   if(a.sponsor) rep.push(`state-sponsored by <b>${esc(a.sponsor)}</b>`);
   else if(a.origin) rep.push(`origin <b>${esc(a.origin)}</b>`);
   if(a.motive) rep.push(`primary motive <b>${esc(a.motive)}</b>`);
   const represent = rep.length?`<div class="th-d-represent">${rep.join(" · ")}</div>`:"";
-  // recent attacks attributed to this group (match ransomware.live group to name/alias)
   const keys=new Set([_norm(a.name), ...(a.aliases||[]).map(_norm)]);
   const atks=((THREATS&&THREATS.attacks)||[]).filter(x=>keys.has(_norm(x.group))).slice(0,12);
   const atkHtml=atks.length?`<div class="th-d-sec"><div class="plabel">Recent attacks by this group</div>${atks.map(x=>`<div class="th-d-atk"><span class="d">${esc(x.date||"")}</span><span class="v">${esc(x.victim||"—")}</span> <span class="info">${[x.country,x.sector].filter(Boolean).map(esc).join(" · ")}</span></div>`).join("")}</div>`:"";
-  box.innerHTML=`
+  return `
+    <div class="d-head" style="padding:0 0 6px"><span>Case File ${caseId(a.name)}</span>${a._active?'<span class="d-active">Active now</span>':''}</div>
     <div class="th-d-name">${esc(a.name)}</div>
     <div class="th-d-tags">${motiveTags(a)||'<span class="info" style="font-size:11px">unclassified</span>'}</div>
+    <div class="d-rating" style="margin:9px 0">Threat rating ${meter(a._rating)} <span class="info" style="margin-left:6px;text-transform:none;letter-spacing:0">(heuristic)</span></div>
     ${represent}
     ${(a.targets||[]).length?`<div class="th-d-represent"><span class="info">targets:</span> ${a.targets.map(esc).join(", ")}</div>`:""}
     ${a.description?`<div class="th-d-sec"><div class="plabel">Profile</div><div class="th-d-desc">${esc(a.description)}</div></div>`:""}
     ${(a.aliases||[]).length?`<div class="th-d-sec"><div class="plabel">Also known as</div><div class="th-d-aliases">${a.aliases.map(x=>`<span>${esc(x)}</span>`).join(" · ")}</div></div>`:""}
     ${atkHtml}
     ${a.ref?`<div class="th-d-sec"><a class="th-d-ref" href="${esc(a.ref)}" target="_blank" rel="noopener">reference ↗</a></div>`:""}`;
-  box.scrollTop=0;
 }
-$("#thActorList").addEventListener("click",e=>{ const c=e.target.closest(".th-actor"); if(c) selectActor(c.dataset.name); });
-$("#thSearch").addEventListener("input",e=>renderActorList(e.target.value));
+
+function openActor(name){
+  const a=((THREATS&&THREATS.actors)||[]).find(x=>x.name===name);
+  if(!a) return;
+  $("#thModalBody").innerHTML=actorDetailHTML(a);
+  const m=$("#thModal"); m.hidden=false; m.scrollTop=0;
+}
+function closeActor(){ $("#thModal").hidden=true; }
+
+$("#thGallery").addEventListener("click",e=>{ const c=e.target.closest(".dossier"); if(c) openActor(c.dataset.name); });
+$("#thSpotlight").addEventListener("click",e=>{ const c=e.target.closest(".spotlight"); if(c) openActor(c.dataset.name); });
+$("#thFilters").addEventListener("click",e=>{ const c=e.target.closest(".th-chip"); if(c){ thMotive=c.dataset.k; renderFilters(); renderGallery(); } });
+$("#thSearch").addEventListener("input",renderGallery);
+$("#thModalX").addEventListener("click",closeActor);
+$("#thModal").addEventListener("click",e=>{ if(e.target.id==="thModal") closeActor(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !$("#thModal").hidden) closeActor(); });
 $("#threatsRefresh").addEventListener("click",()=>loadThreats(true));
 
 banner(); renderStats(); renderLog(); loadNews(); cmdIn.focus();
