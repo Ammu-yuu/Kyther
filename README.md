@@ -35,13 +35,14 @@ lookup — all behind a terminal-style console.
 - **Professional PDF reports** — one click re-scans the target and renders a multi-section report (cover, executive summary, findings, methodology, appendix). See [`docs/sample-report.pdf`](docs/sample-report.pdf).
 - **Reddit OSINT — keyless** — a dedicated section pulls karma, cake day, most-active subreddits, activity patterns and recent posts/comments from public Reddit archives (Arctic Shift + PullPush), including removed/deleted content — **no API key or OAuth**.
 - **Searchable logs** — every scan is saved with its full captured dossier; open any past search to see everything it found, then **re-run** it or **search again**.
+- **Threat Actors — keyless** — ~1,000 hacker groups as "classified dossier" cards (motive, origin, state sponsor, targets, aliases, heuristic threat rating), plus a live global attack timeline from ransomware.live. Click any incident for a brief; the gang cross-links to its dossier. Sources: MISP galaxy + ransomware.live.
 - **Live dashboard** — targets scanned, profiles found, success rate, and a threat level that reacts to the risk score.
 - **Cyber Attacks feed** — a live security-news stream (Hacker News, cached).
 - **Safety built in** — an SSRF guard blocks private/metadata targets; heavy or keyed analyzers are off by default.
 
 ## 🗂 Workspace
 
-The UI is a sidebar workspace with four views (Home is unchanged terminal-first):
+The UI is a sidebar workspace (Home is unchanged terminal-first):
 
 | View | What it's for |
 |------|---------------|
@@ -49,8 +50,17 @@ The UI is a sidebar workspace with four views (Home is unchanged terminal-first)
 | **Reddit** | keyless Reddit OSINT — profile, karma, cake day, top subreddits, activity, posts/comments |
 | **Logs** | every past scan; click one for its full dossier + *run again* / *search again* |
 | **Cyber Attacks** | live feed of breaches, exploits & incidents |
+| **Threat Actors** | hacker groups as dossier cards (motive, origin, threat rating) + a live global attack timeline with incident briefs |
 
 ## 📸 Screenshots
+
+**Threat Actors.** ~1,000 hacker groups as classified-dossier cards (motive-coloured, with a heuristic threat rating and an *Active now* badge), a rotating "actor of the day" spotlight, and a live global attack timeline.
+
+![Kyther Threat Actors gallery](docs/screens/threats.png)
+
+**Incident briefs.** Click any ransomware attack for a brief — victim, gang, an "about the victim" write-up, and safe "view more" links. The gang cross-links to its threat-actor dossier.
+
+![Kyther incident brief](docs/screens/threats-brief.png)
 
 **Reddit OSINT — keyless.** Profile, karma, cake day, most-active subreddits, activity-by-hour, and recent posts/comments — pulled from public archives with no API key.
 
@@ -133,7 +143,7 @@ findings ─► confidence tagging ─► dossier + timeline + graph ─► risk
 
 - **`kyther/core/`** — entity model, plugin registry, async pivot engine, SSRF guard.
 - **`kyther/analyzers/`** — one file per source. Add a plugin by dropping a module here and listing it in `__init__.py`.
-- **`kyther/api.py`** — FastAPI service: `/api/scan`, `/api/report` (PDF), `/api/reddit`, `/api/news`, `/api/analyzers` + the console.
+- **`kyther/api.py`** — FastAPI service: `/api/scan`, `/api/report` (PDF), `/api/reddit`, `/api/threats`, `/api/news`, `/api/analyzers` + the console.
 - **`kyther/report.py`** — the reportlab PDF report generator.
 - **`kyther/web/index.html`** — the self-contained Kyther workspace UI.
 
