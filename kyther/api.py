@@ -417,14 +417,22 @@ async def _fetch_attacks() -> list:
         return c["data"]
     out = []
     for a in items:
+        press = a.get("press")
+        press_out = None
+        if isinstance(press, dict) and press.get("source"):
+            press_out = {"url": press.get("source"),
+                         "summary": (press.get("summary") or "").strip()[:400]}
         out.append({
             "victim": a.get("victim"),
             "group": a.get("group"),
             "date": (a.get("discovered") or a.get("attackdate") or "")[:10],
             "country": a.get("country"),
             "sector": a.get("activity"),
-            "url": a.get("claim_url") or a.get("url") or None,
-            "description": (a.get("description") or "").strip()[:220],
+            "description": (a.get("description") or "").strip()[:400],
+            "domain": a.get("domain") or None,
+            # neutral ransomware.live incident page — never the gang's leak site
+            "ref": a.get("url") or None,
+            "press": press_out,
         })
     out.sort(key=lambda x: x["date"] or "", reverse=True)
     out = out[:80]
