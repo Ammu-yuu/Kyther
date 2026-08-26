@@ -351,6 +351,94 @@ async def reddit_lookup(u: str = Query(..., min_length=1, max_length=64)) -> dic
         return {"found": False, "error": "fetch_failed", "message": str(exc)}
 
 
+# ── Threat intelligence: actor profiles + a live global attack timeline ──────
+# Both keyless. MISP galaxy changes slowly (24h cache); ransomware.live updates
+# constantly (1h cache), so the feed reflects new threats as they emerge.
+_MISP_ACTORS_URL = "https://raw.githubusercontent.com/MISP/misp-galaxy/main/clusters/threat-actor.json"
+_RANSOMWARE_URL = "https://api.ransomware.live/v2/recentvictims"
+_THREATS_CACHE = {"actors": {"ts": 0.0, "data": []}, "attacks": {"ts": 0.0, "data": []}}
+_ACTORS_TTL = 86400
+_ATTACKS_TTL = 3600
+
+
+def _as_list(v) -> list:
+    if v is None:
+        return []
+    return v if isinstance(v, list) else [v]
+
+
+def _trim_actor(v: dict) -> dict:
+    m = v.get("meta") or {}
+    targets = _as_list(m.get("cfr-target-category")) or _as_list(m.get("targeted-sector"))
+    return {
+        "name": (v.get("value") or "").strip(),
+        "description": (v.get("description") or "").strip()[:800],
+        "aliases": [a for a in _as_list(m.get("synonyms")) if a][:12],
+        "motive": m.get("cfr-type-of-incident"),
+        "origin": m.get("country"),
+        "sponsor": m.get("cfr-suspected-state-sponsor"),
+        "targets": [t for t in targets if t][:6],
+        "ref": (_as_list(m.get("refs")) or [None])[0],
+    }
+
+
+async def _fetch_actors() -> list:
+    now = time.time()
+    c = _THREATS_CACHE["actors"]
+    if c["data"] and now - c["ts"] < _ACTORS_TTL:
+        return c["data"]
+    try:
+        async with httpx.AsyncClient(timeout=25) as h:
+            r = await h.get(_MISP_ACTORS_URL)
+            values = (r.json() or {}).get("values", [])
+    except Exception:
+        return c["data"]
+    out = [_trim_actor(v) for v in values
+           if v.get("value") and (v.get("description") or (v.get("meta") or {}).get("cfr-type-of-incident"))]
+    # actors with a stated motive first, then alphabetical
+    out.sort(key=lambda a: (a["motive"] is None, (a["name"] or "").lower()))
+    c.update(ts=now, data=out)
+    return out
+
+
+async def _fetch_attacks() -> list:
+    now = time.time()
+    c = _THREATS_CACHE["attacks"]
+    if c["data"] and now - c["ts"] < _ATTACKS_TTL:
+        return c["data"]
+    try:
+        async with httpx.AsyncClient(timeout=20) as h:
+            r = await h.get(_RANSOMWARE_URL)
+            items = r.json() or []
+    except Exception:
+        return c["data"]
+    out = []
+    for a in items:
+        out.append({
+            "victim": a.get("victim"),
+            "group": a.get("group"),
+            "date": (a.get("discovered") or a.get("attackdate") or "")[:10],
+            "country": a.get("country"),
+            "sector": a.get("activity"),
+            "url": a.get("claim_url") or a.get("url") or None,
+            "description": (a.get("description") or "").strip()[:220],
+        })
+    out.sort(key=lambda x: x["date"] or "", reverse=True)
+    out = out[:80]
+    c.update(ts=now, data=out)
+    return out
+
+
+@app.get("/api/threats")
+async def threats() -> dict:
+    """Threat-actor profiles (MISP galaxy) + a live ransomware attack timeline
+    (ransomware.live). Keyless; cached (actors 24h, attacks 1h)."""
+    actors = await _fetch_actors()
+    attacks = await _fetch_attacks()
+    return {"actors": actors, "attacks": attacks,
+            "counts": {"actors": len(actors), "attacks": len(attacks)}}
+
+
 @app.get("/api/analyzers")
 async def list_analyzers() -> list[dict]:
     registry.load_builtins()

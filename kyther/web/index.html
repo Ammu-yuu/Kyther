@@ -206,6 +206,52 @@
   .log-item{cursor:pointer;}
   .log-item:hover .log-cmd{color:var(--pink);}
 
+  /* ---- Threat Actors view ---- */
+  .th-sec{margin-bottom:24px;}
+  .th-sec>.plabel{margin-bottom:11px;}
+  .th-timeline{max-height:340px;overflow-y:auto;padding:4px 16px;}
+  .th-atk{display:flex;align-items:baseline;gap:12px;padding:10px 0;border-top:1px solid var(--border);font-size:12.5px;}
+  .th-atk:first-child{border-top:0;}
+  .th-atk .ta-date{color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums;flex-shrink:0;width:86px;}
+  .th-atk .ta-group{color:var(--dot-r);font-weight:500;white-space:nowrap;flex-shrink:0;text-transform:uppercase;letter-spacing:.02em;}
+  .th-atk .ta-victim{color:var(--primary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .th-atk a.ta-victim:hover{color:var(--pink);}
+  .th-atk .ta-meta{color:var(--dim);font-size:11px;white-space:nowrap;flex-shrink:0;}
+  .th-actors-head{display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap;}
+  #thSearch{flex:1;min-width:220px;max-width:420px;background:#0d0b11;border:1px solid var(--border);border-radius:6px;padding:9px 12px;color:var(--primary);font-family:var(--mono);font-size:12.5px;outline:0;caret-color:var(--pink);}
+  #thSearch:focus{border-color:#3a3444;}
+  #thSearch::placeholder{color:var(--dim);opacity:.7;}
+  .th-actors-grid{display:grid;grid-template-columns:320px minmax(0,1fr);gap:18px;align-items:start;}
+  @media(max-width:820px){.th-actors-grid{grid-template-columns:1fr;}}
+  .th-actor-list{display:flex;flex-direction:column;gap:7px;max-height:70vh;overflow-y:auto;padding-right:2px;}
+  .th-actor{display:flex;flex-direction:column;gap:5px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel);cursor:pointer;transition:.12s;}
+  .th-actor:hover{border-color:#3a3444;}
+  .th-actor.on{border-color:var(--pink);background:#1d1622;}
+  .th-actor .ta-name{color:var(--primary);font-size:12.5px;}
+  .th-actor .ta-tags{display:flex;gap:6px;flex-wrap:wrap;}
+  .mtag{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:2px 6px;border:1px solid var(--border);color:var(--dim);}
+  .mtag.espionage{color:#c4a7e7;border-color:#4a3d63;}
+  .mtag.financial{color:var(--dot-y);border-color:#5a4e2e;}
+  .mtag.sabotage,.mtag.destruction{color:var(--dot-r);border-color:#5a2e2e;}
+  .mtag.hacktivism{color:var(--green);border-color:#2e5a44;}
+  .mtag.origin{color:var(--output);}
+  .th-actor-detail{padding:20px 22px;min-height:320px;}
+  .th-d-name{font-size:19px;color:var(--primary);font-weight:600;}
+  .th-d-tags{display:flex;gap:7px;flex-wrap:wrap;margin:9px 0;}
+  .th-d-represent{color:var(--output);font-size:12.5px;margin:4px 0 2px;}
+  .th-d-represent b{color:var(--primary);font-weight:500;}
+  .th-d-sec{margin-top:16px;}
+  .th-d-sec .plabel{margin-bottom:7px;}
+  .th-d-desc{color:var(--output);font-size:12.5px;line-height:1.6;}
+  .th-d-aliases{color:var(--dim);font-size:11.5px;line-height:1.8;}
+  .th-d-aliases span{color:var(--output);}
+  .th-d-ref{color:var(--pink);font-size:11.5px;border-bottom:1px dotted #f472b644;}
+  .th-d-ref:hover{border-bottom-style:solid;}
+  .th-d-atk{display:flex;gap:10px;padding:5px 0;font-size:12px;border-top:1px solid var(--border);}
+  .th-d-atk:first-child{border-top:0;}
+  .th-d-atk .d{color:var(--dim);width:86px;flex-shrink:0;font-variant-numeric:tabular-nums;}
+  .th-d-atk .v{color:var(--primary);}
+
   /* ---- Reddit view ---- */
   .rd-search{display:flex;gap:10px;margin-bottom:22px;max-width:600px;}
   #rdInput{flex:1;background:#0d0b11;border:1px solid var(--border);border-radius:6px;padding:11px 13px;color:var(--primary);font-family:var(--mono);font-size:13px;outline:0;caret-color:var(--pink);}
@@ -290,6 +336,7 @@
       <button class="nav-item" data-view="reddit"><span class="ni-ico">r/</span><span>Reddit</span></button>
       <button class="nav-item" data-view="logs"><span class="ni-ico">≣</span><span>Logs</span></button>
       <button class="nav-item" data-view="attacks"><span class="ni-ico">⚠</span><span>Cyber Attacks</span></button>
+      <button class="nav-item" data-view="threats"><span class="ni-ico">☠</span><span>Threat Actors</span></button>
     </nav>
     <div class="side-foot">Kyther v0.2 · 19 analyzers</div>
   </aside>
@@ -419,6 +466,33 @@
         </div>
         <div class="panel" style="padding:6px 18px;">
           <div class="attacks-list" id="attacksList"><div class="news-loading">loading feed…</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Threat Actors view -->
+    <section id="view-threats" class="view" hidden>
+      <div class="wrap">
+        <div class="view-head">
+          <h2>Threat Actors</h2>
+          <span class="vh-sub">known hacker groups &amp; a live timeline of global attacks</span>
+          <div class="vh-act"><button class="vh-btn" id="threatsRefresh">refresh</button></div>
+        </div>
+
+        <div class="th-sec">
+          <div class="plabel">⚡ Recent global attacks <span class="info" id="thAttackMeta"></span></div>
+          <div class="panel th-timeline" id="thTimeline"><div class="rd-empty">loading live attack feed…</div></div>
+        </div>
+
+        <div class="th-sec">
+          <div class="th-actors-head">
+            <div class="plabel">Threat actors <span class="info" id="thActorMeta"></span></div>
+            <input id="thSearch" placeholder="filter — name, alias, motive, country…" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="th-actors-grid">
+            <div class="th-actor-list" id="thActorList"><div class="rd-empty">loading…</div></div>
+            <div class="panel th-actor-detail" id="thActorDetail"><div class="rd-empty">select a threat actor to see its profile, motive &amp; recent activity.</div></div>
+          </div>
         </div>
       </div>
     </section>
@@ -682,6 +756,7 @@ function showView(v){
   if(v==="logs") renderLogsFull();
   if(v==="attacks") renderAttacks();
   if(v==="reddit") $("#rdInput").focus();
+  if(v==="threats") loadThreats();
   window.scrollTo(0,0);
 }
 function setType(t){ if(!TYPES.includes(t)) return; TYPE=t; document.querySelectorAll(".qs-btn").forEach(x=>x.classList.toggle("on",x.dataset.type===t)); }
@@ -825,10 +900,85 @@ function renderReddit(d){
 }
 $("#rdGo").addEventListener("click",()=>runReddit($("#rdInput").value));
 $("#rdInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runReddit($("#rdInput").value); });
-$("#rdKey").value=rdKey();
-$("#rdKeySave").addEventListener("click",saveRdKey);
-$("#rdKey").addEventListener("keydown",e=>{ if(e.key==="Enter") saveRdKey(); });
-renderRdKeyState();
+
+// ---------- Threat Actors view ----------
+let THREATS=null, threatsBusy=false, selectedActor=null;
+const _norm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+async function loadThreats(force){
+  if(threatsBusy) return;
+  if(THREATS && !force){ renderThreats(); return; }
+  threatsBusy=true;
+  $("#thTimeline").innerHTML='<div class="rd-empty">loading live attack feed…</div>';
+  $("#thActorList").innerHTML='<div class="rd-empty">loading threat actors…</div>';
+  try{
+    const r=await fetch(API+"/api/threats");
+    THREATS=await r.json();
+    renderThreats();
+  }catch(e){
+    $("#thTimeline").innerHTML='<div class="rd-empty err">feed unavailable: '+esc(e.message)+'</div>';
+    $("#thActorList").innerHTML='';
+  }finally{ threatsBusy=false; }
+}
+function renderThreats(){
+  const t=THREATS||{}, attacks=t.attacks||[], actors=t.actors||[];
+  $("#thAttackMeta").textContent = attacks.length?`· ${attacks.length} latest, newest first`:"";
+  $("#thActorMeta").textContent = actors.length?`· ${actors.length} tracked`:"";
+  // Live attack timeline
+  $("#thTimeline").innerHTML = attacks.length ? attacks.map(a=>{
+    const victim = a.url ? `<a class="ta-victim" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.victim||"—")}</a>` : `<span class="ta-victim">${esc(a.victim||"—")}</span>`;
+    const meta=[a.country,a.sector].filter(Boolean).map(esc).join(" · ");
+    return `<div class="th-atk"><span class="ta-date">${esc(a.date||"")}</span><span class="ta-group">${esc(a.group||"?")}</span>${victim}<span class="ta-meta">${meta}</span></div>`;
+  }).join("") : '<div class="rd-empty">feed unavailable.</div>';
+  renderActorList("");
+  if($("#thSearch")) $("#thSearch").value="";
+}
+function motiveTags(a){
+  const tags=[];
+  if(a.motive){ const cls=_norm(a.motive).replace(/crime|attack/g,""); tags.push(`<span class="mtag ${cls}">${esc(a.motive)}</span>`); }
+  if(a.origin){ tags.push(`<span class="mtag origin">${esc(a.origin)}</span>`); }
+  return tags.join("");
+}
+function renderActorList(q){
+  const actors=(THREATS&&THREATS.actors)||[];
+  const nq=_norm(q);
+  const list = nq ? actors.filter(a=>{
+    return _norm(a.name).includes(nq) || _norm(a.motive).includes(nq) || _norm(a.origin).includes(nq)
+        || _norm(a.sponsor).includes(nq) || (a.aliases||[]).some(x=>_norm(x).includes(nq));
+  }) : actors;
+  const el=$("#thActorList");
+  if(!list.length){ el.innerHTML='<div class="rd-empty">no actors match.</div>'; return; }
+  el.innerHTML=list.slice(0,400).map(a=>`<div class="th-actor${a.name===selectedActor?' on':''}" data-name="${esc(a.name)}"><div class="ta-name">${esc(a.name)}</div><div class="ta-tags">${motiveTags(a)}</div></div>`).join("");
+}
+function selectActor(name){
+  selectedActor=name;
+  const a=((THREATS&&THREATS.actors)||[]).find(x=>x.name===name);
+  renderActorList($("#thSearch").value);
+  const box=$("#thActorDetail");
+  if(!a){ box.innerHTML='<div class="rd-empty">not found.</div>'; return; }
+  // "what they represent" — origin + state sponsor
+  const rep=[];
+  if(a.sponsor) rep.push(`state-sponsored by <b>${esc(a.sponsor)}</b>`);
+  else if(a.origin) rep.push(`origin <b>${esc(a.origin)}</b>`);
+  if(a.motive) rep.push(`primary motive <b>${esc(a.motive)}</b>`);
+  const represent = rep.length?`<div class="th-d-represent">${rep.join(" · ")}</div>`:"";
+  // recent attacks attributed to this group (match ransomware.live group to name/alias)
+  const keys=new Set([_norm(a.name), ...(a.aliases||[]).map(_norm)]);
+  const atks=((THREATS&&THREATS.attacks)||[]).filter(x=>keys.has(_norm(x.group))).slice(0,12);
+  const atkHtml=atks.length?`<div class="th-d-sec"><div class="plabel">Recent attacks by this group</div>${atks.map(x=>`<div class="th-d-atk"><span class="d">${esc(x.date||"")}</span><span class="v">${esc(x.victim||"—")}</span> <span class="info">${[x.country,x.sector].filter(Boolean).map(esc).join(" · ")}</span></div>`).join("")}</div>`:"";
+  box.innerHTML=`
+    <div class="th-d-name">${esc(a.name)}</div>
+    <div class="th-d-tags">${motiveTags(a)||'<span class="info" style="font-size:11px">unclassified</span>'}</div>
+    ${represent}
+    ${(a.targets||[]).length?`<div class="th-d-represent"><span class="info">targets:</span> ${a.targets.map(esc).join(", ")}</div>`:""}
+    ${a.description?`<div class="th-d-sec"><div class="plabel">Profile</div><div class="th-d-desc">${esc(a.description)}</div></div>`:""}
+    ${(a.aliases||[]).length?`<div class="th-d-sec"><div class="plabel">Also known as</div><div class="th-d-aliases">${a.aliases.map(x=>`<span>${esc(x)}</span>`).join(" · ")}</div></div>`:""}
+    ${atkHtml}
+    ${a.ref?`<div class="th-d-sec"><a class="th-d-ref" href="${esc(a.ref)}" target="_blank" rel="noopener">reference ↗</a></div>`:""}`;
+  box.scrollTop=0;
+}
+$("#thActorList").addEventListener("click",e=>{ const c=e.target.closest(".th-actor"); if(c) selectActor(c.dataset.name); });
+$("#thSearch").addEventListener("input",e=>renderActorList(e.target.value));
+$("#threatsRefresh").addEventListener("click",()=>loadThreats(true));
 
 banner(); renderStats(); renderLog(); loadNews(); cmdIn.focus();
 </script>
