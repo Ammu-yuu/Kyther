@@ -356,8 +356,12 @@ async def reddit_lookup(u: str = Query(..., min_length=1, max_length=64)) -> dic
 # constantly (1h cache), so the feed reflects new threats as they emerge.
 _MISP_ACTORS_URL = "https://raw.githubusercontent.com/MISP/misp-galaxy/main/clusters/threat-actor.json"
 _RANSOMWARE_URL = "https://api.ransomware.live/v2/recentvictims"
-_THREATS_CACHE = {"actors": {"ts": 0.0, "data": []}, "attacks": {"ts": 0.0, "data": []}}
+_GROUPS_URL = "https://api.ransomware.live/v2/groups"
+_THREATS_CACHE = {"actors": {"ts": 0.0, "data": []},
+                  "groups": {"ts": 0.0, "data": []},
+                  "attacks": {"ts": 0.0, "data": []}}
 _ACTORS_TTL = 86400
+_GROUPS_TTL = 43200   # 12h — the ransomware gang roster changes slowly
 _ATTACKS_TTL = 3600
 
 
@@ -365,6 +369,10 @@ def _as_list(v) -> list:
     if v is None:
         return []
     return v if isinstance(v, list) else [v]
+
+
+def _norm_key(s) -> str:
+    return "".join(c for c in str(s or "").lower() if c.isalnum())
 
 
 def _trim_actor(v: dict) -> dict:
@@ -402,6 +410,63 @@ async def _fetch_actors() -> list:
     out.sort(key=lambda a: (a["motive"] is None, (a["name"] or "").lower()))
     c.update(ts=now, data=out)
     return out
+
+
+def _trim_group(g: dict) -> dict:
+    """A ransomware.live gang, shaped like a threat-actor card. MISP is
+    APT/nation-state heavy and misses most (esp. new) ransomware crews, so we
+    fold these in — motive is financial extortion by definition."""
+    name = (g.get("name") or "").strip()
+    if name and name == name.lower():   # gang names arrive lowercased ("anubis")
+        name = name.title()
+    alt = g.get("altname")
+    return {
+        "name": name,
+        "description": (g.get("description") or "").strip()[:800],
+        "aliases": [alt.strip()] if isinstance(alt, str) and alt.strip() else [],
+        "motive": "Financial Crime / Extortion",
+        "origin": None,
+        "sponsor": None,
+        "targets": [],
+        # ransomware.live group page — safe; never the gang's onion leak site
+        "ref": g.get("url") or None,
+        "source": "ransomware.live",
+    }
+
+
+async def _fetch_groups() -> list:
+    now = time.time()
+    c = _THREATS_CACHE["groups"]
+    if c["data"] and now - c["ts"] < _GROUPS_TTL:
+        return c["data"]
+    try:
+        async with httpx.AsyncClient(timeout=25) as h:
+            r = await h.get(_GROUPS_URL)
+            items = r.json() or []
+    except Exception:
+        return c["data"]
+    out = [_trim_group(g) for g in items if g.get("name")]
+    c.update(ts=now, data=out)
+    return out
+
+
+def _merge_actors(misp: list, gangs: list) -> list:
+    """MISP actors + ransomware gangs, de-duplicated. A gang already covered by
+    a MISP actor (by name or alias, e.g. Akira == Storm-1567) keeps MISP's
+    richer profile; the rest are added so every gang in the feed is findable."""
+    known: set = set()
+    for a in misp:
+        known.add(_norm_key(a["name"]))
+        known.update(_norm_key(x) for x in (a.get("aliases") or []))
+    merged = list(misp)
+    for g in gangs:
+        keys = {_norm_key(g["name"])} | {_norm_key(x) for x in (g.get("aliases") or [])}
+        if keys & known:
+            continue
+        merged.append(g)
+        known |= keys
+    merged.sort(key=lambda a: (a.get("motive") is None, (a.get("name") or "").lower()))
+    return merged
 
 
 async def _fetch_attacks() -> list:
@@ -442,9 +507,12 @@ async def _fetch_attacks() -> list:
 
 @app.get("/api/threats")
 async def threats() -> dict:
-    """Threat-actor profiles (MISP galaxy) + a live ransomware attack timeline
-    (ransomware.live). Keyless; cached (actors 24h, attacks 1h)."""
-    actors = await _fetch_actors()
+    """Threat actors (MISP galaxy APTs + ransomware.live gangs, merged) plus a
+    live ransomware attack timeline. Keyless; cached (actors 24h, gangs 12h,
+    attacks 1h)."""
+    misp = await _fetch_actors()
+    gangs = await _fetch_groups()
+    actors = _merge_actors(misp, gangs)
     attacks = await _fetch_attacks()
     return {"actors": actors, "attacks": attacks,
             "counts": {"actors": len(actors), "attacks": len(attacks)}}
