@@ -20,6 +20,7 @@ import httpx
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .core import registry
@@ -307,6 +308,23 @@ def _finding_dict(f: Finding) -> dict:
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(WEB_DIR / "index.html")
+
+
+# ── PWA: manifest, service worker, and app icons (for add-to-home-screen) ────
+@app.get("/manifest.webmanifest")
+async def manifest() -> FileResponse:
+    return FileResponse(WEB_DIR / "manifest.webmanifest",
+                        media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+async def service_worker() -> FileResponse:
+    # served from the site root so its scope covers the whole app
+    return FileResponse(WEB_DIR / "sw.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+app.mount("/icons", StaticFiles(directory=WEB_DIR / "icons"), name="icons")
 
 
 _NEWS_CACHE: dict = {"ts": 0.0, "data": []}
