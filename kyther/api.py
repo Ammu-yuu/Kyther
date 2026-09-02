@@ -10,6 +10,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import time
 from dataclasses import asdict
@@ -375,6 +376,8 @@ async def reddit_lookup(u: str = Query(..., min_length=1, max_length=64)) -> dic
 _MISP_ACTORS_URL = "https://raw.githubusercontent.com/MISP/misp-galaxy/main/clusters/threat-actor.json"
 _RANSOMWARE_URL = "https://api.ransomware.live/v2/recentvictims"
 _GROUPS_URL = "https://api.ransomware.live/v2/groups"
+# A descriptive UA — the default "python-httpx/..." is blocked by many WAFs.
+_TI_UA = "kyther/0.2 (OSINT research; +https://github.com/Ammu-yuu/Kyther)"
 _THREATS_CACHE = {"actors": {"ts": 0.0, "data": []},
                   "groups": {"ts": 0.0, "data": []},
                   "attacks": {"ts": 0.0, "data": []}}
@@ -452,17 +455,33 @@ def _trim_group(g: dict) -> dict:
     }
 
 
+async def _rl_fetch_json(url: str, tries: int = 2):
+    """GET a ransomware.live endpoint as JSON, riding out transient rate-limits.
+    When throttled the API replies with a 404 / HTML page instead of a clean
+    429, so we only accept a 200 with a JSON content-type and otherwise back off
+    and retry. Returns the parsed JSON, or None if every attempt failed."""
+    async with httpx.AsyncClient(timeout=25, follow_redirects=True,
+                                 headers={"User-Agent": _TI_UA}) as h:
+        for i in range(tries):
+            try:
+                r = await h.get(url)
+                if r.status_code == 200 and "json" in r.headers.get("content-type", "").lower():
+                    return r.json()
+            except Exception:
+                pass
+            await asyncio.sleep(1.5 * (i + 1))  # 1.5s, 3s, 4.5s backoff
+    return None
+
+
 async def _fetch_groups() -> list:
     now = time.time()
     c = _THREATS_CACHE["groups"]
     if c["data"] and now - c["ts"] < _GROUPS_TTL:
         return c["data"]
-    try:
-        async with httpx.AsyncClient(timeout=25) as h:
-            r = await h.get(_GROUPS_URL)
-            items = r.json() or []
-    except Exception:
-        return c["data"]
+    data = await _rl_fetch_json(_GROUPS_URL)
+    if data is None:
+        return c["data"]  # keep whatever we had rather than blanking the gallery
+    items = data if isinstance(data, list) else (data.get("data", []) if isinstance(data, dict) else [])
     out = [_trim_group(g) for g in items if g.get("name")]
     c.update(ts=now, data=out)
     return out
@@ -492,12 +511,10 @@ async def _fetch_attacks() -> list:
     c = _THREATS_CACHE["attacks"]
     if c["data"] and now - c["ts"] < _ATTACKS_TTL:
         return c["data"]
-    try:
-        async with httpx.AsyncClient(timeout=20) as h:
-            r = await h.get(_RANSOMWARE_URL)
-            items = r.json() or []
-    except Exception:
-        return c["data"]
+    data = await _rl_fetch_json(_RANSOMWARE_URL)
+    if data is None:
+        return c["data"]  # keep stale timeline rather than blanking it
+    items = data if isinstance(data, list) else (data.get("data", []) if isinstance(data, dict) else [])
     out = []
     for a in items:
         press = a.get("press")
@@ -506,9 +523,9 @@ async def _fetch_attacks() -> list:
             press_out = {"url": press.get("source"),
                          "summary": (press.get("summary") or "").strip()[:400]}
         out.append({
-            "victim": a.get("victim"),
-            "group": a.get("group"),
-            "date": (a.get("discovered") or a.get("attackdate") or "")[:10],
+            "victim": a.get("victim") or a.get("post_title") or a.get("victim_name"),
+            "group": a.get("group") or a.get("group_name"),
+            "date": (a.get("discovered") or a.get("attackdate") or a.get("published") or "")[:10],
             "country": a.get("country"),
             "sector": a.get("activity"),
             "description": (a.get("description") or "").strip()[:400],
@@ -526,14 +543,72 @@ async def _fetch_attacks() -> list:
 @app.get("/api/threats")
 async def threats() -> dict:
     """Threat actors (MISP galaxy APTs + ransomware.live gangs, merged) plus a
-    live ransomware attack timeline. Keyless; cached (actors 24h, gangs 12h,
-    attacks 1h)."""
-    misp = await _fetch_actors()
-    gangs = await _fetch_groups()
-    actors = _merge_actors(misp, gangs)
-    attacks = await _fetch_attacks()
+    live ransomware attack timeline. Served straight from cache — a background
+    task keeps it fresh (see _threat_refresher), so this never blocks on the
+    rate-limited upstream."""
+    misp = _THREATS_CACHE["actors"]["data"]
+    gangs = _THREATS_CACHE["groups"]["data"]
+    attacks = _THREATS_CACHE["attacks"]["data"]
+    actors = _merge_actors(misp, gangs) if (misp or gangs) else []
     return {"actors": actors, "attacks": attacks,
             "counts": {"actors": len(actors), "attacks": len(attacks)}}
+
+
+# ── Threat cache: persist to disk + refresh in the background ────────────────
+# ransomware.live rate-limits to roughly one request/minute (serving throttled
+# requests as 404/HTML). We therefore never fetch it on the request path;
+# instead a background loop refreshes one source per cycle, and the cache is
+# saved to disk so a restart doesn't blank the feed.
+_THREATS_FILE = Path.home() / ".kyther" / "threats_cache.json"
+
+
+def _save_threats() -> None:
+    try:
+        _THREATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _THREATS_FILE.write_text(json.dumps(_THREATS_CACHE))
+    except Exception:
+        pass
+
+
+def _load_threats() -> None:
+    try:
+        if _THREATS_FILE.exists():
+            saved = json.loads(_THREATS_FILE.read_text())
+            for k in ("actors", "groups", "attacks"):
+                if isinstance(saved.get(k), dict) and isinstance(saved[k].get("data"), list):
+                    _THREATS_CACHE[k] = saved[k]
+    except Exception:
+        pass
+
+
+async def _threat_refresher() -> None:
+    """Keep the threat cache fresh with at most ~one ransomware.live call per
+    cycle, so we stay under its rate limit. MISP (no limit) refreshes freely."""
+    while True:
+        try:
+            now = time.time()
+            ac = _THREATS_CACHE["actors"]
+            if not ac["data"] or now - ac["ts"] > _ACTORS_TTL:
+                await _fetch_actors()
+                _save_threats()
+            # one rate-limited source per cycle: attacks first (the live feed),
+            # then the gang roster.
+            at, gr = _THREATS_CACHE["attacks"], _THREATS_CACHE["groups"]
+            if not at["data"] or now - at["ts"] > _ATTACKS_TTL:
+                await _fetch_attacks()
+                _save_threats()
+            elif not gr["data"] or now - gr["ts"] > _GROUPS_TTL:
+                await _fetch_groups()
+                _save_threats()
+        except Exception:
+            pass
+        await asyncio.sleep(60)  # ≤ ~1 ransomware.live request per 60s
+
+
+@app.on_event("startup")
+async def _threats_startup() -> None:
+    _load_threats()
+    asyncio.create_task(_threat_refresher())
 
 
 @app.get("/api/analyzers")
