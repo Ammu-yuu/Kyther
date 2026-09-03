@@ -611,6 +611,141 @@ async def _threats_startup() -> None:
     asyncio.create_task(_threat_refresher())
 
 
+# ── World Pulse: trending topics + how a topic is covered across regions/tone ─
+# Keyless. Trending = Wikipedia's most-read articles (fast, reliable).
+# Per-topic discourse = GDELT (global news in 100+ languages, with source
+# country + tone). GDELT is powerful but slow/flaky, so every call has a tight
+# timeout, one retry, a descriptive UA, and results are cached; failures return
+# a soft "source busy" rather than hanging. Everything is framed as *coverage &
+# attention*, never as "public opinion".
+_GDELT_DOC = "https://api.gdeltproject.org/api/v2/doc/doc"
+_WIKI_TOP = "https://wikimedia.org/api/rest_v1/metrics/pageviews/top/{proj}.wikipedia/all-access/{y}/{m:02d}/{d:02d}"
+_PULSE_CACHE: dict = {}          # key -> (ts, payload)
+_PULSE_TTL = 1800                # 30 min for topics
+_TREND_TTL = 3600                # 1 h for trending
+# Wikipedia language editions offered as "regions" (language ≈ audience).
+PULSE_REGIONS = {"en": "Global (English)", "es": "Spanish", "hi": "Hindi / India",
+                 "ar": "Arabic", "fr": "French", "de": "German", "pt": "Portuguese",
+                 "ja": "Japanese", "ru": "Russian", "zh": "Chinese"}
+_WIKI_SKIP = ("Main_Page", "Special:", "Wikipedia:", "Portal:", "Help:",
+              "Category:", "Template:", "File:", "Talk:", "Draft:", "User:")
+
+
+def _pulse_cached(key: str, ttl: int):
+    hit = _PULSE_CACHE.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    return None
+
+
+def _gdelt_query(q: str) -> str:
+    q = q.strip()
+    return f'"{q}"' if " " in q else q  # quote multi-word phrases
+
+
+def _art(a: dict) -> dict:
+    d = (a.get("seendate") or "")[:8]
+    date = f"{d[:4]}-{d[4:6]}-{d[6:8]}" if len(d) == 8 else None
+    return {"title": a.get("title"), "domain": a.get("domain"),
+            "country": a.get("sourcecountry") or None, "lang": a.get("language") or None,
+            "date": date, "url": a.get("url")}
+
+
+async def _gdelt_articles(query: str, sort: str = "datedesc", maxrecords: int = 75):
+    """Fetch a GDELT article list defensively. Returns a list, or None on failure."""
+    params = {"query": query, "mode": "artlist", "maxrecords": str(maxrecords),
+              "timespan": "7d", "sort": sort, "format": "json"}
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=18, headers={"User-Agent": _TI_UA}) as h:
+                r = await h.get(_GDELT_DOC, params=params)
+                if r.status_code == 200 and "json" in r.headers.get("content-type", "").lower():
+                    return (r.json() or {}).get("articles", []) or []
+        except Exception:
+            pass
+        if attempt == 0:
+            await asyncio.sleep(2)
+    return None
+
+
+@app.get("/api/pulse/trending")
+async def pulse_trending(region: str = Query("en", max_length=8)) -> dict:
+    """Most-read Wikipedia topics for a language edition — 'what the world is
+    reading about'. Reliable and fast."""
+    region = region if region in PULSE_REGIONS else "en"
+    key = f"trend:{region}"
+    cached = _pulse_cached(key, _TREND_TTL)
+    if cached is not None:
+        return cached
+    y = time.gmtime(time.time() - 86400)  # yesterday (last complete day, UTC)
+    url = _WIKI_TOP.format(proj=region, y=y.tm_year, m=y.tm_mon, d=y.tm_mday)
+    topics: list = []
+    try:
+        async with httpx.AsyncClient(timeout=15, headers={"User-Agent": _TI_UA}) as h:
+            r = await h.get(url)
+            items = ((r.json() or {}).get("items") or [{}])[0].get("articles", [])
+        for a in items:
+            t = a.get("article") or ""
+            if any(t.startswith(p) or p in t for p in _WIKI_SKIP):
+                continue
+            topics.append({"topic": t.replace("_", " "), "views": a.get("views"),
+                           "url": f"https://{region}.wikipedia.org/wiki/{t}"})
+            if len(topics) >= 20:
+                break
+    except Exception:
+        pass
+    payload = {"region": region, "regions": PULSE_REGIONS, "topics": topics}
+    if topics:
+        _PULSE_CACHE[key] = (time.time(), payload)
+    return payload
+
+
+@app.get("/api/pulse/topic")
+async def pulse_topic(q: str = Query(..., min_length=2, max_length=100)) -> dict:
+    """How a topic is being covered worldwide (GDELT), grouped by source
+    country. Coverage & attention — not public opinion."""
+    key = f"topic:{q.lower().strip()}"
+    cached = _pulse_cached(key, _PULSE_TTL)
+    if cached is not None:
+        return cached
+    arts = await _gdelt_articles(_gdelt_query(q))
+    if arts is None:
+        return {"ok": False, "error": "source_busy",
+                "message": "The global news source (GDELT) is busy right now — try again in a moment."}
+    coverage = [_art(a) for a in arts if a.get("title")]
+    by_region: dict = {}
+    for c in coverage:
+        by_region.setdefault(c["country"] or "Unknown", []).append(c)
+    regions = sorted(by_region.items(), key=lambda kv: -len(kv[1]))
+    payload = {"ok": True, "q": q, "total": len(coverage),
+               "countries": len([k for k in by_region if k != "Unknown"]),
+               "coverage": coverage[:60],
+               "by_region": [{"country": k, "count": len(v), "articles": v[:8]} for k, v in regions[:12]]}
+    _PULSE_CACHE[key] = (time.time(), payload)
+    return payload
+
+
+@app.get("/api/pulse/tone")
+async def pulse_tone(q: str = Query(..., min_length=2, max_length=100)) -> dict:
+    """The two ends of the coverage spectrum for a topic: most-favourable vs
+    most-critical articles (GDELT tone-sorted). Best-effort."""
+    key = f"tone:{q.lower().strip()}"
+    cached = _pulse_cached(key, _PULSE_TTL)
+    if cached is not None:
+        return cached
+    query = _gdelt_query(q)
+    pos = await _gdelt_articles(query, sort="tonedesc", maxrecords=12)
+    neg = await _gdelt_articles(query, sort="toneasc", maxrecords=12)
+    if pos is None and neg is None:
+        return {"ok": False, "error": "source_busy",
+                "message": "The tone breakdown source (GDELT) is busy — try again in a moment."}
+    payload = {"ok": True, "q": q,
+               "positive": [_art(a) for a in (pos or []) if a.get("title")],
+               "negative": [_art(a) for a in (neg or []) if a.get("title")]}
+    _PULSE_CACHE[key] = (time.time(), payload)
+    return payload
+
+
 @app.get("/api/analyzers")
 async def list_analyzers() -> list[dict]:
     registry.load_builtins()

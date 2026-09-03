@@ -237,6 +237,43 @@
   .th-atk .ta-meta{color:var(--dim);font-size:11px;white-space:nowrap;flex-shrink:0;}
   .th-gang-link{color:#e0857f;cursor:pointer;border-bottom:1px dotted #e0857f66;}
   .th-gang-link:hover{border-bottom-style:solid;}
+
+  /* ---- World Pulse view ---- */
+  .pulse-note{color:var(--dim);font-size:11.5px;line-height:1.55;margin:-6px 0 var(--gap);max-width:820px;border-left:2px solid #4a3d63;padding-left:11px;}
+  .pulse-note b{color:var(--output);font-weight:500;}
+  .pulse-trend-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap;}
+  .pulse-select{background:var(--bar);border:1px solid var(--border);border-radius:6px;color:var(--primary);font-family:var(--mono);font-size:12px;padding:6px 10px;cursor:pointer;outline:0;}
+  .pulse-trend{display:flex;flex-wrap:wrap;gap:8px;}
+  .pulse-chip{display:inline-flex;align-items:baseline;gap:7px;background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:7px 13px;color:var(--primary);cursor:pointer;font-size:12px;transition:.12s;}
+  .pulse-chip:hover{border-color:var(--pink);color:var(--pink);}
+  .pulse-chip .pc-v{color:var(--dim);font-size:10px;font-variant-numeric:tabular-nums;}
+  .pulse-search{display:flex;gap:10px;margin-bottom:16px;max-width:600px;}
+  #pulseInput{flex:1;background:#0d0b11;border:1px solid var(--border);border-radius:6px;padding:11px 13px;color:var(--primary);font-family:var(--mono);font-size:13px;outline:0;caret-color:var(--pink);}
+  #pulseInput:focus{border-color:#3a3444;} #pulseInput::placeholder{color:var(--dim);opacity:.7;}
+  #pulseGo{background:#211d29;border:1px solid var(--border);border-radius:6px;color:var(--primary);padding:0 22px;cursor:pointer;font-family:var(--mono);font-size:12.5px;}
+  #pulseGo:hover{border-color:#3a3444;} #pulseGo:disabled{opacity:.5;cursor:progress;}
+  .pulse-topic-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px;}
+  .pulse-topic-head .pt-name{font-size:17px;color:var(--primary);font-weight:600;}
+  .pulse-topic-head .pt-meta{color:var(--dim);font-size:11.5px;}
+  .pulse-toggle{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin:12px 0 16px;}
+  .pulse-toggle button{background:var(--panel);border:0;color:var(--dim);font-family:var(--mono);font-size:11.5px;padding:7px 15px;cursor:pointer;}
+  .pulse-toggle button.on{background:#211d29;color:var(--primary);}
+  .pulse-cols{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);}
+  @media(max-width:760px){.pulse-cols{grid-template-columns:1fr;}}
+  .pulse-region-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--gap-sm);}
+  .pulse-group{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;}
+  .pulse-group .pg-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px;}
+  .pulse-group .pg-country{color:var(--primary);font-size:12.5px;font-weight:500;}
+  .pulse-group .pg-count{color:var(--dim);font-size:10.5px;}
+  .pulse-group.favorable .pg-country{color:var(--green);}
+  .pulse-group.critical .pg-country{color:var(--dot-r);}
+  .pulse-art{display:block;padding:7px 0;border-top:1px solid var(--border);}
+  .pulse-art:first-child{border-top:0;}
+  .pulse-art .pa-title{color:var(--output);font-size:12px;line-height:1.4;}
+  .pulse-art:hover .pa-title{color:var(--pink);}
+  .pulse-art .pa-meta{color:var(--dim);font-size:10px;margin-top:3px;}
+  .pulse-empty{color:var(--dim);font-size:12.5px;padding:6px 0;}
+  .pulse-empty.err{color:var(--dot-r);}
   .th-actors-head{display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap;}
   #thSearch{flex:1;min-width:220px;max-width:420px;background:#0d0b11;border:1px solid var(--border);border-radius:6px;padding:9px 12px;color:var(--primary);font-family:var(--mono);font-size:12.5px;outline:0;caret-color:var(--pink);}
   #thSearch:focus{border-color:#3a3444;}
@@ -401,6 +438,7 @@
       <button class="nav-item" data-view="logs"><span class="ni-ico">≣</span><span>Logs</span></button>
       <button class="nav-item" data-view="attacks"><span class="ni-ico">⚠</span><span>Cyber Attacks</span></button>
       <button class="nav-item" data-view="threats"><span class="ni-ico">☠</span><span>Threat Actors</span></button>
+      <button class="nav-item" data-view="pulse"><span class="ni-ico">◍</span><span>World Pulse</span></button>
     </nav>
     <div class="side-foot">Kyther v0.2 · 19 analyzers</div>
   </aside>
@@ -565,6 +603,34 @@
         <div class="th-modal-inner panel">
           <button class="th-modal-x" id="thModalX" aria-label="close">✕</button>
           <div id="thModalBody"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- World Pulse view -->
+    <section id="view-pulse" class="view" hidden>
+      <div class="wrap">
+        <div class="view-head">
+          <h2>World Pulse</h2>
+          <span class="vh-sub">what the world is paying attention to — and how any topic is covered across regions &amp; tone</span>
+        </div>
+        <div class="pulse-note">Shows <b>media coverage &amp; attention</b>, not verified public opinion. Sources are cited and linked — read across the sides and judge for yourself.</div>
+
+        <div class="th-sec">
+          <div class="pulse-trend-head">
+            <div class="plabel">Trending now <span class="info">(most-read on Wikipedia)</span></div>
+            <select id="pulseRegion" class="pulse-select"></select>
+          </div>
+          <div class="pulse-trend" id="pulseTrend"><div class="rd-empty">loading trending topics…</div></div>
+        </div>
+
+        <div class="th-sec">
+          <div class="plabel">Explore a topic</div>
+          <div class="pulse-search">
+            <input id="pulseInput" placeholder="type a topic — e.g. an election, a film, a policy…" autocomplete="off" spellcheck="false" />
+            <button id="pulseGo">Explore</button>
+          </div>
+          <div id="pulseResult"><div class="rd-empty">pick a trending topic above, or type your own, to see how it's covered around the world.</div></div>
         </div>
       </div>
     </section>
@@ -829,6 +895,7 @@ function showView(v){
   if(v==="attacks") renderAttacks();
   if(v==="reddit") $("#rdInput").focus();
   if(v==="threats") loadThreats();
+  if(v==="pulse") initPulse();
   window.scrollTo(0,0);
 }
 function setType(t){ if(!TYPES.includes(t)) return; TYPE=t; document.querySelectorAll(".qs-btn").forEach(x=>x.classList.toggle("on",x.dataset.type===t)); }
@@ -1164,6 +1231,80 @@ $("#thModalX").addEventListener("click",closeActor);
 $("#thModal").addEventListener("click",e=>{ if(e.target.id==="thModal") closeActor(); });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !$("#thModal").hidden) closeActor(); });
 $("#threatsRefresh").addEventListener("click",()=>loadThreats(true));
+
+// ---------- World Pulse view ----------
+let pulseInited=false, pulseTopic=null, pulseData=null, pulseToneData=null, pulseView="region";
+function initPulse(){
+  if(pulseInited){ $("#pulseInput").focus(); return; }
+  pulseInited=true;
+  loadPulseTrending("en");
+  $("#pulseInput").focus();
+}
+async function loadPulseTrending(region){
+  const el=$("#pulseTrend"); el.innerHTML='<div class="rd-empty">loading trending topics…</div>';
+  try{
+    const d=await (await fetch(API+"/api/pulse/trending?region="+encodeURIComponent(region))).json();
+    // populate region dropdown once
+    const sel=$("#pulseRegion");
+    if(!sel.options.length && d.regions){ sel.innerHTML=Object.entries(d.regions).map(([k,v])=>`<option value="${esc(k)}"${k===region?" selected":""}>${esc(v)}</option>`).join(""); }
+    if(!d.topics || !d.topics.length){ el.innerHTML='<div class="pulse-empty">trending unavailable for this region right now.</div>'; return; }
+    el.innerHTML=d.topics.map(t=>`<span class="pulse-chip" data-topic="${esc(t.topic)}">${esc(t.topic)}${t.views?`<span class="pc-v">${Number(t.views).toLocaleString()}</span>`:""}</span>`).join("");
+  }catch(e){ el.innerHTML='<div class="pulse-empty err">couldn\'t load trending: '+esc(e.message)+'</div>'; }
+}
+let pulseBusy=false;
+async function runPulseTopic(q){
+  q=(q||"").trim(); if(!q||pulseBusy) return;
+  pulseBusy=true; $("#pulseGo").disabled=true; pulseTopic=q; pulseToneData=null; pulseView="region";
+  $("#pulseInput").value=q;
+  $("#pulseResult").innerHTML='<div class="rd-empty">gathering coverage from around the world<span class="blink">_</span> <span class="info">(GDELT can take a few seconds)</span></div>';
+  try{
+    const d=await (await fetch(API+"/api/pulse/topic?q="+encodeURIComponent(q))).json();
+    pulseData=d; renderPulseTopic();
+  }catch(e){
+    $("#pulseResult").innerHTML='<div class="pulse-empty err">lookup failed: '+esc(e.message)+'</div>';
+  }finally{ pulseBusy=false; $("#pulseGo").disabled=false; }
+}
+function pulseArt(a){
+  const meta=[a.country,a.date].filter(Boolean).map(esc).join(" · ");
+  return `<a class="pulse-art" href="${esc(a.url)}" target="_blank" rel="noopener"><div class="pa-title">${esc(a.title||"(untitled)")}</div><div class="pa-meta">${esc(a.domain||"")}${meta?" · "+meta:""}</div></a>`;
+}
+function renderPulseTopic(){
+  const d=pulseData, box=$("#pulseResult");
+  if(!d || !d.ok){
+    box.innerHTML=`<div class="pulse-empty err">${esc((d&&d.message)||"No coverage found.")}</div>`+
+      (d&&d.error==="source_busy"?`<div style="margin-top:10px"><button id="pulseRetry" class="vh-btn">retry</button></div>`:"");
+    const rb=$("#pulseRetry"); if(rb) rb.addEventListener("click",()=>runPulseTopic(pulseTopic));
+    return;
+  }
+  const head=`<div class="pulse-topic-head"><span class="pt-name">${esc(d.q)}</span><span class="pt-meta">${d.total} articles · ${d.countries} countries · last 7 days</span></div>`+
+    `<div class="pulse-toggle"><button data-v="region" class="${pulseView==='region'?'on':''}">By region</button><button data-v="tone" class="${pulseView==='tone'?'on':''}">By tone</button></div>`;
+  let body="";
+  if(pulseView==="region"){
+    body=`<div class="pulse-region-grid">${(d.by_region||[]).map(g=>`<div class="pulse-group"><div class="pg-head"><span class="pg-country">${esc(g.country)}</span><span class="pg-count">${g.count} article${g.count===1?'':'s'}</span></div>${g.articles.map(pulseArt).join("")}</div>`).join("")}</div>`;
+  } else {
+    if(!pulseToneData){ body=`<div class="rd-empty">loading tone breakdown<span class="blink">_</span></div>`; }
+    else if(!pulseToneData.ok){ body=`<div class="pulse-empty err">${esc(pulseToneData.message||"tone unavailable")}</div>`; }
+    else {
+      body=`<div class="pulse-cols"><div class="pulse-group favorable"><div class="pg-head"><span class="pg-country">Most favourable coverage</span></div>${(pulseToneData.positive||[]).map(pulseArt).join("")||'<div class="pulse-empty">none found.</div>'}</div>`+
+        `<div class="pulse-group critical"><div class="pg-head"><span class="pg-country">Most critical coverage</span></div>${(pulseToneData.negative||[]).map(pulseArt).join("")||'<div class="pulse-empty">none found.</div>'}</div></div>`;
+    }
+  }
+  box.innerHTML=head+body;
+  box.querySelectorAll(".pulse-toggle button").forEach(b=>b.addEventListener("click",()=>{
+    pulseView=b.dataset.v; renderPulseTopic();
+    if(pulseView==="tone" && !pulseToneData) loadPulseTone(pulseTopic);
+  }));
+}
+async function loadPulseTone(q){
+  try{
+    pulseToneData=await (await fetch(API+"/api/pulse/tone?q="+encodeURIComponent(q))).json();
+  }catch(e){ pulseToneData={ok:false,message:"tone lookup failed"}; }
+  if(pulseView==="tone") renderPulseTopic();
+}
+$("#pulseRegion").addEventListener("change",e=>loadPulseTrending(e.target.value));
+$("#pulseTrend").addEventListener("click",e=>{ const c=e.target.closest(".pulse-chip"); if(c) runPulseTopic(c.dataset.topic); });
+$("#pulseGo").addEventListener("click",()=>runPulseTopic($("#pulseInput").value));
+$("#pulseInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runPulseTopic($("#pulseInput").value); });
 
 banner(); renderStats(); renderLog(); loadNews(); cmdIn.focus();
 
