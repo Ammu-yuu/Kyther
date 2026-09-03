@@ -629,6 +629,12 @@ PULSE_REGIONS = {"en": "Global (English)", "es": "Spanish", "hi": "Hindi / India
                  "ja": "Japanese", "ru": "Russian", "zh": "Chinese"}
 _WIKI_SKIP = ("Main_Page", "Special:", "Wikipedia:", "Portal:", "Help:",
               "Category:", "Template:", "File:", "Talk:", "Draft:", "User:")
+# Keep trending "general" — drop graphic / adult / gratuitously disturbing reads
+# that spike on Wikipedia but aren't what this section is for.
+_WIKI_BLOCK = ("cannibal", "pornograph", "onlyfans", "hentai", "incest",
+               "bestiality", "pedophil", "molestation", "sex tape", "sextape",
+               "revenge porn", "nude", "xxx", "erotic", "brothel", "prostitut",
+               "necrophil", "gore", "snuff")
 
 
 def _pulse_cached(key: str, ttl: int):
@@ -639,8 +645,10 @@ def _pulse_cached(key: str, ttl: int):
 
 
 def _gdelt_query(q: str) -> str:
-    q = q.strip()
-    return f'"{q}"' if " " in q else q  # quote multi-word phrases
+    # Plain space-separated terms → GDELT ANDs them (all must appear). This is
+    # much lighter than an exact-phrase ("...") search, which GDELT is very slow
+    # to serve, so it responds faster and times out less.
+    return q.strip()
 
 
 def _art(a: dict) -> dict:
@@ -652,19 +660,18 @@ def _art(a: dict) -> dict:
 
 
 async def _gdelt_articles(query: str, sort: str = "datedesc", maxrecords: int = 75):
-    """Fetch a GDELT article list defensively. Returns a list, or None on failure."""
+    """Fetch a GDELT article list defensively — a single, time-boxed attempt so
+    the UI fails fast (with a retry button) rather than hanging. Returns a list,
+    or None on failure."""
     params = {"query": query, "mode": "artlist", "maxrecords": str(maxrecords),
-              "timespan": "7d", "sort": sort, "format": "json"}
-    for attempt in range(2):
-        try:
-            async with httpx.AsyncClient(timeout=18, headers={"User-Agent": _TI_UA}) as h:
-                r = await h.get(_GDELT_DOC, params=params)
-                if r.status_code == 200 and "json" in r.headers.get("content-type", "").lower():
-                    return (r.json() or {}).get("articles", []) or []
-        except Exception:
-            pass
-        if attempt == 0:
-            await asyncio.sleep(2)
+              "timespan": "3d", "sort": sort, "format": "json"}  # 3d = lighter/faster
+    try:
+        async with httpx.AsyncClient(timeout=22, headers={"User-Agent": _TI_UA}) as h:
+            r = await h.get(_GDELT_DOC, params=params)
+            if r.status_code == 200 and "json" in r.headers.get("content-type", "").lower():
+                return (r.json() or {}).get("articles", []) or []
+    except Exception:
+        pass
     return None
 
 
@@ -687,6 +694,8 @@ async def pulse_trending(region: str = Query("en", max_length=8)) -> dict:
         for a in items:
             t = a.get("article") or ""
             if any(t.startswith(p) or p in t for p in _WIKI_SKIP):
+                continue
+            if any(b in t.lower().replace("_", " ") for b in _WIKI_BLOCK):
                 continue
             topics.append({"topic": t.replace("_", " "), "views": a.get("views"),
                            "url": f"https://{region}.wikipedia.org/wiki/{t}"})

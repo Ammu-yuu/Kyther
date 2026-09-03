@@ -1276,7 +1276,7 @@ function renderPulseTopic(){
     const rb=$("#pulseRetry"); if(rb) rb.addEventListener("click",()=>runPulseTopic(pulseTopic));
     return;
   }
-  const head=`<div class="pulse-topic-head"><span class="pt-name">${esc(d.q)}</span><span class="pt-meta">${d.total} articles · ${d.countries} countries · last 7 days</span></div>`+
+  const head=`<div class="pulse-topic-head"><span class="pt-name">${esc(d.q)}</span><span class="pt-meta">${d.total} articles · ${d.countries} countries · last 3 days</span></div>`+
     `<div class="pulse-toggle"><button data-v="region" class="${pulseView==='region'?'on':''}">By region</button><button data-v="tone" class="${pulseView==='tone'?'on':''}">By tone</button></div>`;
   let body="";
   if(pulseView==="region"){
