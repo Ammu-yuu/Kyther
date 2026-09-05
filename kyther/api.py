@@ -618,8 +618,16 @@ async def _threats_startup() -> None:
 # timeout, one retry, a descriptive UA, and results are cached; failures return
 # a soft "source busy" rather than hanging. Everything is framed as *coverage &
 # attention*, never as "public opinion".
-_GDELT_DOC = "https://api.gdeltproject.org/api/v2/doc/doc"
+_GNEWS = "https://news.google.com/rss/search"
 _WIKI_TOP = "https://wikimedia.org/api/rest_v1/metrics/pageviews/top/{proj}.wikipedia/all-access/{y}/{m:02d}/{d:02d}"
+# Country editions of Google News used to show a topic's "sides" — how the same
+# story surfaces in different countries' press (English editions).
+PULSE_EDITIONS = {
+    "US": {"label": "United States", "hl": "en-US", "gl": "US", "ceid": "US:en"},
+    "GB": {"label": "United Kingdom", "hl": "en-GB", "gl": "GB", "ceid": "GB:en"},
+    "IN": {"label": "India", "hl": "en-IN", "gl": "IN", "ceid": "IN:en"},
+}
+_SIDES_ORDER = ["US", "GB", "IN"]
 _PULSE_CACHE: dict = {}          # key -> (ts, payload)
 _PULSE_TTL = 1800                # 30 min for topics
 _TREND_TTL = 3600                # 1 h for trending
@@ -644,34 +652,45 @@ def _pulse_cached(key: str, ttl: int):
     return None
 
 
-def _gdelt_query(q: str) -> str:
-    # Plain space-separated terms → GDELT ANDs them (all must appear). This is
-    # much lighter than an exact-phrase ("...") search, which GDELT is very slow
-    # to serve, so it responds faster and times out less.
-    return q.strip()
-
-
-def _art(a: dict) -> dict:
-    d = (a.get("seendate") or "")[:8]
-    date = f"{d[:4]}-{d[4:6]}-{d[6:8]}" if len(d) == 8 else None
-    return {"title": a.get("title"), "domain": a.get("domain"),
-            "country": a.get("sourcecountry") or None, "lang": a.get("language") or None,
-            "date": date, "url": a.get("url")}
-
-
-async def _gdelt_articles(query: str, sort: str = "datedesc", maxrecords: int = 75):
-    """Fetch a GDELT article list defensively — a single, time-boxed attempt so
-    the UI fails fast (with a retry button) rather than hanging. Returns a list,
-    or None on failure."""
-    params = {"query": query, "mode": "artlist", "maxrecords": str(maxrecords),
-              "timespan": "3d", "sort": sort, "format": "json"}  # 3d = lighter/faster
+def _rss_articles(xml_text: str, limit: int = 8) -> list:
+    """Parse a Google News RSS feed into article dicts. Google News titles end
+    in ' - Source'; we split that off and use the <source> element."""
+    import xml.etree.ElementTree as ET
+    out = []
     try:
-        async with httpx.AsyncClient(timeout=22, headers={"User-Agent": _TI_UA}) as h:
-            r = await h.get(_GDELT_DOC, params=params)
-            if r.status_code == 200 and "json" in r.headers.get("content-type", "").lower():
-                return (r.json() or {}).get("articles", []) or []
+        root = ET.fromstring(xml_text)
     except Exception:
-        pass
+        return out
+    for item in root.iter("item"):
+        title = (item.findtext("title") or "").strip()
+        src_el = item.find("source")
+        source = (src_el.text.strip() if src_el is not None and src_el.text else None)
+        if source and title.endswith(" - " + source):
+            title = title[: -(len(source) + 3)].strip()
+        pub = (item.findtext("pubDate") or "")[:16]
+        out.append({"title": title, "source": source,
+                    "url": (item.findtext("link") or "").strip(), "date": pub})
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def _gnews_search(q: str, edition: dict, limit: int = 8):
+    """Search Google News RSS for a topic in one country edition. Fast, keyless.
+    Returns a list of articles, or None on failure. The CONSENT cookie skips
+    Google's consent interstitial (which otherwise returns an item-less page)."""
+    params = {"q": q.strip(), "hl": edition["hl"], "gl": edition["gl"], "ceid": edition["ceid"]}
+    headers = {"User-Agent": _TI_UA, "Cookie": "CONSENT=YES+cb.20210328-17-p0.en+FX+"}
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=12, headers=headers, follow_redirects=True) as h:
+                r = await h.get(_GNEWS, params=params)
+                if r.status_code == 200 and "<item>" in r.text:
+                    return _rss_articles(r.text, limit)
+        except Exception:
+            pass
+        if attempt == 0:
+            await asyncio.sleep(1)
     return None
 
 
@@ -711,46 +730,23 @@ async def pulse_trending(region: str = Query("en", max_length=8)) -> dict:
 
 @app.get("/api/pulse/topic")
 async def pulse_topic(q: str = Query(..., min_length=2, max_length=100)) -> dict:
-    """How a topic is being covered worldwide (GDELT), grouped by source
-    country. Coverage & attention — not public opinion."""
+    """How a topic is covered across different countries' press (Google News
+    editions), shown side by side. Coverage & attention — not public opinion."""
     key = f"topic:{q.lower().strip()}"
     cached = _pulse_cached(key, _PULSE_TTL)
     if cached is not None:
         return cached
-    arts = await _gdelt_articles(_gdelt_query(q))
-    if arts is None:
+    results = await asyncio.gather(*[_gnews_search(q, PULSE_EDITIONS[c]) for c in _SIDES_ORDER])
+    sides = []
+    total = 0
+    for code, arts in zip(_SIDES_ORDER, results):
+        arts = arts or []
+        total += len(arts)
+        sides.append({"code": code, "label": PULSE_EDITIONS[code]["label"], "articles": arts})
+    if total == 0:
         return {"ok": False, "error": "source_busy",
-                "message": "The global news source (GDELT) is busy right now — try again in a moment."}
-    coverage = [_art(a) for a in arts if a.get("title")]
-    by_region: dict = {}
-    for c in coverage:
-        by_region.setdefault(c["country"] or "Unknown", []).append(c)
-    regions = sorted(by_region.items(), key=lambda kv: -len(kv[1]))
-    payload = {"ok": True, "q": q, "total": len(coverage),
-               "countries": len([k for k in by_region if k != "Unknown"]),
-               "coverage": coverage[:60],
-               "by_region": [{"country": k, "count": len(v), "articles": v[:8]} for k, v in regions[:12]]}
-    _PULSE_CACHE[key] = (time.time(), payload)
-    return payload
-
-
-@app.get("/api/pulse/tone")
-async def pulse_tone(q: str = Query(..., min_length=2, max_length=100)) -> dict:
-    """The two ends of the coverage spectrum for a topic: most-favourable vs
-    most-critical articles (GDELT tone-sorted). Best-effort."""
-    key = f"tone:{q.lower().strip()}"
-    cached = _pulse_cached(key, _PULSE_TTL)
-    if cached is not None:
-        return cached
-    query = _gdelt_query(q)
-    pos = await _gdelt_articles(query, sort="tonedesc", maxrecords=12)
-    neg = await _gdelt_articles(query, sort="toneasc", maxrecords=12)
-    if pos is None and neg is None:
-        return {"ok": False, "error": "source_busy",
-                "message": "The tone breakdown source (GDELT) is busy — try again in a moment."}
-    payload = {"ok": True, "q": q,
-               "positive": [_art(a) for a in (pos or []) if a.get("title")],
-               "negative": [_art(a) for a in (neg or []) if a.get("title")]}
+                "message": "Couldn't reach the news source right now — try again in a moment."}
+    payload = {"ok": True, "q": q, "total": total, "sides": sides}
     _PULSE_CACHE[key] = (time.time(), payload)
     return payload
 

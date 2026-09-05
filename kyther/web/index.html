@@ -1233,7 +1233,7 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !$("#thModal").h
 $("#threatsRefresh").addEventListener("click",()=>loadThreats(true));
 
 // ---------- World Pulse view ----------
-let pulseInited=false, pulseTopic=null, pulseData=null, pulseToneData=null, pulseView="region";
+let pulseInited=false, pulseTopic=null, pulseData=null;
 function initPulse(){
   if(pulseInited){ $("#pulseInput").focus(); return; }
   pulseInited=true;
@@ -1254,9 +1254,9 @@ async function loadPulseTrending(region){
 let pulseBusy=false;
 async function runPulseTopic(q){
   q=(q||"").trim(); if(!q||pulseBusy) return;
-  pulseBusy=true; $("#pulseGo").disabled=true; pulseTopic=q; pulseToneData=null; pulseView="region";
+  pulseBusy=true; $("#pulseGo").disabled=true; pulseTopic=q;
   $("#pulseInput").value=q;
-  $("#pulseResult").innerHTML='<div class="rd-empty">gathering coverage from around the world<span class="blink">_</span> <span class="info">(GDELT can take a few seconds)</span></div>';
+  $("#pulseResult").innerHTML='<div class="rd-empty">gathering coverage across regions<span class="blink">_</span></div>';
   try{
     const d=await (await fetch(API+"/api/pulse/topic?q="+encodeURIComponent(q))).json();
     pulseData=d; renderPulseTopic();
@@ -1265,8 +1265,8 @@ async function runPulseTopic(q){
   }finally{ pulseBusy=false; $("#pulseGo").disabled=false; }
 }
 function pulseArt(a){
-  const meta=[a.country,a.date].filter(Boolean).map(esc).join(" · ");
-  return `<a class="pulse-art" href="${esc(a.url)}" target="_blank" rel="noopener"><div class="pa-title">${esc(a.title||"(untitled)")}</div><div class="pa-meta">${esc(a.domain||"")}${meta?" · "+meta:""}</div></a>`;
+  const meta=[a.source,a.date].filter(Boolean).map(esc).join(" · ");
+  return `<a class="pulse-art" href="${esc(a.url)}" target="_blank" rel="noopener"><div class="pa-title">${esc(a.title||"(untitled)")}</div><div class="pa-meta">${meta}</div></a>`;
 }
 function renderPulseTopic(){
   const d=pulseData, box=$("#pulseResult");
@@ -1276,30 +1276,9 @@ function renderPulseTopic(){
     const rb=$("#pulseRetry"); if(rb) rb.addEventListener("click",()=>runPulseTopic(pulseTopic));
     return;
   }
-  const head=`<div class="pulse-topic-head"><span class="pt-name">${esc(d.q)}</span><span class="pt-meta">${d.total} articles · ${d.countries} countries · last 3 days</span></div>`+
-    `<div class="pulse-toggle"><button data-v="region" class="${pulseView==='region'?'on':''}">By region</button><button data-v="tone" class="${pulseView==='tone'?'on':''}">By tone</button></div>`;
-  let body="";
-  if(pulseView==="region"){
-    body=`<div class="pulse-region-grid">${(d.by_region||[]).map(g=>`<div class="pulse-group"><div class="pg-head"><span class="pg-country">${esc(g.country)}</span><span class="pg-count">${g.count} article${g.count===1?'':'s'}</span></div>${g.articles.map(pulseArt).join("")}</div>`).join("")}</div>`;
-  } else {
-    if(!pulseToneData){ body=`<div class="rd-empty">loading tone breakdown<span class="blink">_</span></div>`; }
-    else if(!pulseToneData.ok){ body=`<div class="pulse-empty err">${esc(pulseToneData.message||"tone unavailable")}</div>`; }
-    else {
-      body=`<div class="pulse-cols"><div class="pulse-group favorable"><div class="pg-head"><span class="pg-country">Most favourable coverage</span></div>${(pulseToneData.positive||[]).map(pulseArt).join("")||'<div class="pulse-empty">none found.</div>'}</div>`+
-        `<div class="pulse-group critical"><div class="pg-head"><span class="pg-country">Most critical coverage</span></div>${(pulseToneData.negative||[]).map(pulseArt).join("")||'<div class="pulse-empty">none found.</div>'}</div></div>`;
-    }
-  }
-  box.innerHTML=head+body;
-  box.querySelectorAll(".pulse-toggle button").forEach(b=>b.addEventListener("click",()=>{
-    pulseView=b.dataset.v; renderPulseTopic();
-    if(pulseView==="tone" && !pulseToneData) loadPulseTone(pulseTopic);
-  }));
-}
-async function loadPulseTone(q){
-  try{
-    pulseToneData=await (await fetch(API+"/api/pulse/tone?q="+encodeURIComponent(q))).json();
-  }catch(e){ pulseToneData={ok:false,message:"tone lookup failed"}; }
-  if(pulseView==="tone") renderPulseTopic();
+  const head=`<div class="pulse-topic-head"><span class="pt-name">${esc(d.q)}</span><span class="pt-meta">${d.total} recent articles across ${d.sides.length} country editions — compare how each frames it</span></div>`;
+  const cols=(d.sides||[]).map(s=>`<div class="pulse-group"><div class="pg-head"><span class="pg-country">${esc(s.label)}</span><span class="pg-count">${s.articles.length}</span></div>${s.articles.map(pulseArt).join("")||'<div class="pulse-empty">no coverage in this edition.</div>'}</div>`).join("");
+  box.innerHTML=head+`<div class="pulse-region-grid">${cols}</div>`;
 }
 $("#pulseRegion").addEventListener("change",e=>loadPulseTrending(e.target.value));
 $("#pulseTrend").addEventListener("click",e=>{ const c=e.target.closest(".pulse-chip"); if(c) runPulseTopic(c.dataset.topic); });
