@@ -45,7 +45,9 @@ class EmailBasic(Analyzer):
         if domain and domain.lower() not in _FREE_MAIL:
             result.discovered.append(Entity.make(EntityType.DOMAIN, domain, source=self.name))
 
-        md5 = hashlib.md5(entity.value.encode()).hexdigest()
+        # MD5 is mandated by the Gravatar API (the avatar/profile URL is keyed on
+        # the MD5 of the email) — not a security choice, hence usedforsecurity=False.
+        md5 = hashlib.md5(entity.value.encode(), usedforsecurity=False).hexdigest()
         async with client(self.timeout) as http:
             resp = await http.get(f"https://www.gravatar.com/{md5}.json")
             if resp.status_code == 200:

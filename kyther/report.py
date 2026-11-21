@@ -220,7 +220,9 @@ class Report:
         return (value[:1] + "•••" + value[-1:]) if len(value) > 2 else "•••"
 
     def _case_ref(self) -> str:
-        h = hashlib.sha1(self.scan["seed"]["value"].encode()).hexdigest()[:4].upper()
+        # Non-security use: 4 hex chars form a human-readable case label, not a digest
+        # anyone relies on for integrity — so usedforsecurity=False.
+        h = hashlib.sha1(self.scan["seed"]["value"].encode(), usedforsecurity=False).hexdigest()[:4].upper()
         return f"KY-{self.now:%Y%m%d}-{h}"
 
     # -- sections (each returns a list of flowables) --
