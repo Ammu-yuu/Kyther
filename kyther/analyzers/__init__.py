@@ -13,6 +13,7 @@ from . import (  # noqa: F401
     http_probe,
     hunter,
     ip_geo,
+    jobs,
     phone,
     profile,
     rdap,

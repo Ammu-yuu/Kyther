@@ -97,6 +97,18 @@
   #reportBtn{background:transparent;border:1px solid #7c5ba6;border-radius:6px;color:#c4a7e7;font-family:var(--mono);font-size:12.5px;padding:9px 16px;cursor:pointer;transition:.12s;}
   #reportBtn:hover:not(:disabled){background:#211d29;border-color:#bfa4e4;color:var(--primary);}
   #reportBtn:disabled{opacity:.4;cursor:not-allowed;border-color:var(--border);color:var(--dim);}
+  #auditGo{background:transparent;border:1px solid #4a7c59;border-radius:6px;color:#7ed4a6;font-family:var(--mono);font-size:12.5px;padding:0 15px;cursor:pointer;transition:.12s;white-space:nowrap;}
+  #auditGo:hover:not(:disabled){background:#132018;border-color:#7ed4a6;color:#a8e6c4;}
+  #auditGo:disabled{opacity:.5;cursor:progress;}
+  /* audit detail (Logs view) */
+  .aud-sum{margin-bottom:11px;font-size:13px;}
+  .aud-hi{color:#f87171;font-weight:600;} .aud-med{color:#e6c15f;}
+  .aud-row{align-items:baseline!important;gap:9px!important;flex-wrap:wrap;}
+  .aud-row .kv{min-width:44px!important;}
+  .aud-row .val{flex-shrink:0;}
+  .aud-row .info{flex:1 1 200px;min-width:0;white-space:normal;line-height:1.45;}
+  .aud-sev{font-size:9.5px;font-weight:700;border-radius:4px;padding:2px 6px;flex-shrink:0;letter-spacing:.4px;}
+  .aud-sev.high{background:#3a1720;color:#f87171;} .aud-sev.medium{background:#332a12;color:#e6c15f;} .aud-sev.low{background:#20222c;color:#8a93a8;}
   .report-status{font-size:12px;color:var(--dim);}
   .report-status.ok{color:var(--green);} .report-status.err{color:var(--dot-r);} .report-status.busy{color:#c4a7e7;}
 
@@ -439,8 +451,10 @@
       <button class="nav-item" data-view="attacks"><span class="ni-ico">⚠</span><span>Cyber Attacks</span></button>
       <button class="nav-item" data-view="threats"><span class="ni-ico">☠</span><span>Threat Actors</span></button>
       <button class="nav-item" data-view="pulse"><span class="ni-ico">◍</span><span>World Pulse</span></button>
+      <button class="nav-item" data-view="footprint"><span class="ni-ico">⌖</span><span>Company Footprint</span></button>
+      <button class="nav-item" data-view="imageintel"><span class="ni-ico">◫</span><span>Image Intel</span></button>
     </nav>
-    <div class="side-foot">Kyther v0.2 · 19 analyzers</div>
+    <div class="side-foot">Kyther v0.2 · 20 analyzers</div>
   </aside>
   <main class="content">
     <section id="view-home" class="view">
@@ -493,6 +507,7 @@
         <div class="qs-row">
           <input id="qval" placeholder="enter value..." autocomplete="off" spellcheck="false" />
           <button id="qgo">Search</button>
+          <button id="auditGo" title="Security self-audit of Kyther — source (Bandit) + dependencies (pip-audit)">⛊ Audit</button>
         </div>
         <div class="qs-report">
           <button id="reportBtn" disabled>↓ Generate Report (PDF)</button>
@@ -634,8 +649,113 @@
         </div>
       </div>
     </section>
+
+    <!-- Company Footprint view -->
+    <section id="view-footprint" class="view" hidden>
+      <div class="wrap">
+        <div class="view-head"><h2>Company Footprint</h2>
+          <span class="vh-sub">domains · subdomains · exposed services · public job posts</span></div>
+        <div class="fp-search">
+          <input id="fpInput" placeholder="company domain (acme.com) or name (Acme)…" autocomplete="off" spellcheck="false"/>
+          <button id="fpGo">Map footprint</button>
+        </div>
+        <div id="fpResult"><div class="rd-empty">enter a company domain to map its external surface and hiring signals.</div></div>
+      </div>
+    </section>
+
+    <!-- Image Intelligence view -->
+    <section id="view-imageintel" class="view" hidden>
+      <div class="wrap">
+        <div class="view-head"><h2>Image Intelligence</h2>
+          <span class="vh-sub">metadata · reverse search · assisted geolocation</span></div>
+        <div class="pulse-note">An <b>assistant</b>, not an oracle: Kyther extracts EXIF/GPS and hands you reverse-search launchers plus a geolocation workflow. The visual call — signage, architecture, shadows — is yours.</div>
+        <div class="fp-search">
+          <input id="imgUrl" placeholder="paste an image URL — or a page URL (Kyther finds its main image)…" autocomplete="off" spellcheck="false"/>
+          <button id="imgGo">Analyse</button>
+          <label class="img-upload" title="EXIF only (local file isn't uploaded anywhere but Kyther)">Upload file<input type="file" id="imgFile" accept="image/*" hidden/></label>
+        </div>
+        <div id="imgResult"></div>
+        <div class="th-sec">
+          <div class="plabel">Geolocating a photo <span class="info">(this part is manual)</span></div>
+          <div class="geo-howto">
+            Kyther can't turn pixels into coordinates on its own. In practice:
+            <ul class="geo-check">
+              <li>If it's a <b>web / viral image</b> — the <b>reverse search above</b> is usually fastest: it finds where the image is published, and the source names the place.</li>
+              <li>If it's an <b>original photo</b> — check <b>EXIF / GPS above</b> (an untouched camera file may carry exact coordinates).</li>
+              <li>Otherwise it's a visual read — signage &amp; script, licence plates, road markings, architecture, shadows — done in the tools below.</li>
+            </ul>
+          </div>
+          <div class="img-launchers">
+            <a class="launch-btn" href="https://lens.google.com/" target="_blank" rel="noopener">Google Lens ↗</a>
+            <a class="launch-btn" href="https://yandex.com/images/" target="_blank" rel="noopener">Yandex Images ↗</a>
+            <a class="launch-btn" href="https://www.mapillary.com/app/" target="_blank" rel="noopener">Mapillary (street-level) ↗</a>
+            <a class="launch-btn" href="https://www.openstreetmap.org/" target="_blank" rel="noopener">OpenStreetMap ↗</a>
+            <a class="launch-btn" href="https://www.suncalc.org/" target="_blank" rel="noopener">SunCalc (shadows) ↗</a>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
+
+<style>
+  /* Company Footprint + Image Intel views */
+  .fp-search,.sun-form{display:flex;gap:10px;margin:14px 0;flex-wrap:wrap;}
+  .fp-search input,.sun-form input{flex:1;min-width:120px;background:#0d0b11;border:1px solid var(--border);border-radius:6px;padding:11px 13px;color:var(--primary);font-family:var(--mono);font-size:13px;outline:0;caret-color:var(--pink);}
+  .fp-search input:focus,.sun-form input:focus{border-color:#3a3444;}
+  .sun-form input{flex:0 1 150px;}
+  .fp-search button,.sun-form button{background:#211d29;border:1px solid var(--border);border-radius:6px;color:var(--primary);font-family:var(--mono);font-size:12.5px;padding:0 18px;cursor:pointer;white-space:nowrap;}
+  .fp-search button:hover,.sun-form button:hover{border-color:#3a3444;}
+  .img-upload{display:inline-flex;align-items:center;padding:0 16px;border:1px dashed var(--border);border-radius:6px;color:var(--dim);font-family:var(--mono);font-size:12px;cursor:pointer;}
+  .img-upload:hover{color:var(--primary);border-color:#3a3444;}
+  .fp-summary{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 4px;}
+  .fp-stat{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:7px 13px;font-size:12.5px;color:var(--dim);}
+  .fp-stat b{color:var(--primary);}
+  .fp-svc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;}
+  .fp-svc{border:1px solid var(--border);border-radius:6px;padding:11px 13px;background:var(--panel);}
+  .fp-svc-ip{color:var(--primary);font-size:13px;margin-bottom:4px;}
+  .fp-cve{background:#3a1720;color:#f87171;font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px;margin-left:6px;}
+  .fp-subs{display:flex;flex-wrap:wrap;gap:5px;max-height:210px;overflow-y:auto;}
+  .fp-subs span{font-size:11.5px;color:var(--output,#9d93a8);border:1px solid var(--border);border-radius:4px;padding:3px 7px;}
+  .fp-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .fp-chip{font-size:11.5px;color:var(--primary);border:1px solid #3a3444;border-radius:999px;padding:4px 11px;background:rgba(244,114,182,.05);}
+  .img-launchers{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+  .launch-btn{display:inline-block;border:1px solid #7c5ba6;border-radius:6px;color:#c4a7e7;font-family:var(--mono);font-size:12px;padding:8px 14px;text-decoration:none;transition:.12s;}
+  .launch-btn:hover{background:#211d29;border-color:#bfa4e4;color:var(--primary);}
+  /* Verdict / assessment panel (Image Intel + Footprint) */
+  .verdict{border:1px solid var(--border);border-left-width:3px;border-radius:8px;background:var(--panel);padding:13px 15px;margin:10px 0 14px;}
+  .verdict-probable,.verdict-exposed{border-left-color:#f87171;}
+  .verdict-possible,.verdict-review{border-left-color:#e0b64a;}
+  .verdict-ok,.verdict-clean{border-left-color:var(--green,#5bd6a3);}
+  .vd-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+  .vd-tag{font-size:9.5px;letter-spacing:.14em;color:var(--dim);border:1px solid var(--border);border-radius:4px;padding:2px 6px;}
+  .vd-text{font-size:14.5px;color:var(--primary);font-weight:600;}
+  .vd-conf{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;}
+  .sig-list{list-style:none;margin:11px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;}
+  .sig-list li{position:relative;padding-left:16px;font-size:12.5px;line-height:1.5;color:var(--output,#9d93a8);}
+  .sig-list li::before{content:"";position:absolute;left:0;top:6px;width:7px;height:7px;border-radius:50%;}
+  .sig-strong::before{background:#7cc5ff;} .sig-warn::before{background:#e0b64a;} .sig-info::before{background:#5d5468;}
+  .vd-steps-h{font-size:10px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin:13px 0 5px;}
+  .vd-steps{margin:0;padding-left:18px;color:var(--primary);font-size:12.5px;line-height:1.65;}
+  .risk-chips{display:flex;gap:7px;margin:11px 0 4px;}
+  .risk-chip{font-size:11px;font-variant-numeric:tabular-nums;border-radius:5px;padding:3px 9px;border:1px solid var(--border);color:var(--dim);}
+  .risk-chip.rk-high{background:#3a1720;color:#f87171;border-color:#582230;}
+  .risk-chip.rk-med{background:#352c12;color:#e0b64a;border-color:#4d3f1b;}
+  .risk-chip.rk-low{color:var(--output,#9d93a8);}
+  .risk-list{margin-top:9px;display:flex;flex-direction:column;}
+  .risk-row{display:grid;grid-template-columns:auto 120px 150px 1fr;gap:10px;align-items:baseline;padding:7px 0;border-top:1px solid var(--border);font-size:12px;}
+  .risk-row:first-child{border-top:0;}
+  @media(max-width:680px){.risk-row{grid-template-columns:auto 1fr;}.risk-row .rk-host,.risk-row .rk-why{grid-column:2;}}
+  .rk-dot{width:8px;height:8px;border-radius:50%;align-self:center;}
+  .risk-row.rk-high .rk-dot{background:#f87171;} .risk-row.rk-med .rk-dot{background:#e0b64a;} .risk-row.rk-low .rk-dot{background:#5d5468;}
+  .rk-svc{color:var(--primary);font-weight:500;} .rk-host{color:var(--output,#9d93a8);word-break:break-all;} .rk-why{color:var(--dim);line-height:1.45;}
+  .pulse-read{border:1px solid var(--border);border-left:3px solid var(--pink);border-radius:8px;background:var(--panel);padding:12px 15px;margin:4px 0 18px;}
+  .pulse-read .pr-h{font-size:10px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin-bottom:7px;}
+  .pulse-read ul{margin:0;padding-left:17px;color:var(--primary);font-size:12.5px;line-height:1.65;}
+  .geo-check{margin:4px 0 12px;padding-left:18px;color:var(--output,#9d93a8);font-size:12.5px;line-height:1.7;}
+  .geo-check b{color:var(--primary);}
+  .geo-howto{color:var(--output,#9d93a8);font-size:12.5px;line-height:1.6;margin-bottom:10px;}
+</style>
 
 <script>
 const API=location.protocol.startsWith("http")?"":"http://127.0.0.1:8099";
@@ -654,7 +774,7 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 
 function put(html,cls){ const d=document.createElement("div"); d.className="line "+(cls||""); d.innerHTML=html; term.appendChild(d); term.scrollTop=term.scrollHeight; return d; }
 function banner(){
-  put('<span class="ok">Kyther</span> <span class="info">v0.2 — 19 analyzers online</span>');
+  put('<span class="ok">Kyther</span> <span class="info">v0.2 — 20 analyzers online</span>');
   put('<span class="info">type a command, or use Quick Search below. `help` for options.</span>');
   put('&nbsp;');
 }
@@ -745,6 +865,58 @@ async function runSearch(type,value){
   }
 }
 
+async function runAudit(){
+  if(busy) return;
+  busy=true; $("#qgo").disabled=true; $("#auditGo").disabled=true; cmdIn.disabled=true;
+  put(`<span class="cmd"><span class="match">&gt;</span> audit --self</span>`);
+  const running=put(`<span class="info">scanning source + dependencies<span class="blink">_</span></span>`);
+  const t0=performance.now();
+  try{
+    const r=await fetch(API+"/api/audit",{method:"POST"});
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.detail?JSON.stringify(e.detail):"HTTP "+r.status); }
+    const d=await r.json();
+    const secs=((performance.now()-t0)/1000).toFixed(1);
+    running.remove();
+    renderAudit(d,secs);
+    const b=d.bandit||{}, dp=d.deps||{};
+    const res=`${b.high||0}H ${b.medium||0}M ${b.low||0}L · ${dp.vuln_count||0} CVEs`;
+    addLog("audit","self · kyther",res,{__audit:true,...d});
+  }catch(e){
+    running.remove();
+    put(`<span class="err">[x] audit failed: ${esc(e.message)}</span>`);
+  }finally{
+    busy=false; $("#qgo").disabled=false; $("#auditGo").disabled=false; cmdIn.disabled=false; cmdIn.focus();
+    put("&nbsp;");
+  }
+}
+function renderAudit(d,secs){
+  const b=d.bandit||{}, dp=d.deps||{}, YEL="#c2a24f";
+  put(`<span class="ok">[ok]</span> <span class="info">security audit complete [${secs}s]</span>`);
+  // --- source (bandit) ---
+  if(b.available===false){ put(`<span class="info">    code: bandit not installed — pip install bandit</span>`); }
+  else if(b.error){ put(`<span class="err">    code (bandit): ${esc(b.error)}</span>`); }
+  else{
+    const H=b.high||0,M=b.medium||0,L=b.low||0;
+    put(`<span class="plus">[+]</span> <span class="kv">code (bandit):</span> <span class="${H?'err':'ok'}">${H} high</span> <span class="kv">·</span> <span style="color:${YEL}">${M} medium</span> <span class="kv">·</span> <span class="info">${L} low</span> <span class="info">(${b.loc} LOC)</span>`);
+    (b.findings||[]).filter(f=>f.sev!=="LOW").slice(0,6).forEach(f=>{
+      const hi=f.sev==="HIGH"; const cs=hi?'class="err"':`style="color:${YEL}"`;
+      put(`    <span ${cs}>${esc(f.id)} ${esc(f.sev)}</span> <span class="val">${esc(f.file)}:${esc(f.line)}</span> <span class="info">${esc(f.text)}</span>`);
+    });
+  }
+  // --- dependencies (pip-audit) ---
+  if(dp.available===false){ put(`<span class="info">    deps: pip-audit not installed — pip install pip-audit</span>`); }
+  else if(dp.error){ put(`<span class="err">    deps (pip-audit): ${esc(dp.error)}</span>`); }
+  else{
+    const V=dp.vuln_count||0;
+    put(`<span class="plus">[+]</span> <span class="kv">dependencies (pip-audit):</span> <span class="${V?'err':'ok'}">${V} CVEs</span> <span class="info">across ${dp.pkg_count||0} packages</span>`);
+    (dp.packages||[]).slice(0,6).forEach(p=>{
+      put(`    <span class="val">${esc(p.name)} ${esc(p.version)}</span> <span class="info">${p.count} ${p.count===1?'advisory':'advisories'}${p.fix?' → '+esc(p.fix):''}</span>`);
+    });
+  }
+  const clean=(b.high||0)===0 && (b.medium||0)===0 && (dp.vuln_count||0)===0 && !b.error && !dp.error;
+  if(clean) put(`<span class="ok">    ✓ no open issues — clean audit.</span>`);
+}
+
 const CONF_RANK={possible:0,probable:1,confirmed:2};
 function dedupe(profiles){
   // Merge duplicate sites by host, keeping the BEST confidence — so a WhatsMyName
@@ -824,12 +996,14 @@ function handleCommand(raw){
   if(s==="help"){
     put('<span class="ok">commands:</span>');
     put('  <span class="val">search --&lt;type&gt; &lt;value&gt;</span>  <span class="info">type = username|email|domain|ip|phone|person|company</span>');
+    put('  <span class="val">audit</span>  <span class="info">run a security self-audit (source + dependencies)</span>');
     put('  <span class="val">clear</span>  <span class="info">clear the terminal</span>');
     put('<span class="info">or just type a value and pick a type in Quick Search.</span>'); put("&nbsp;");
     return;
   }
   let m=s.match(/^search\s+--(\w+)\s+(.+)$/);
   if(m && TYPES.includes(m[1])){ runSearch(m[1],m[2]); return; }
+  if(s==="audit"||s==="audit --self"){ runAudit(); return; }
   m=s.match(/^(sherlock|holehe)\s+(.+)$/);
   if(m){ runSearch(m[1]==="holehe"?"email":"username",m[2]); return; }
   if(!s.startsWith("search")){ runSearch(TYPE,s); return; }
@@ -840,6 +1014,7 @@ cmdIn.addEventListener("keydown",e=>{ if(e.key==="Enter"){ const v=cmdIn.value; 
 $("#qsBtns").addEventListener("click",e=>{ const b=e.target.closest(".qs-btn"); if(!b)return;
   document.querySelectorAll(".qs-btn").forEach(x=>x.classList.remove("on")); b.classList.add("on"); TYPE=b.dataset.type; $("#qval").focus(); });
 $("#qgo").addEventListener("click",()=>{ const v=$("#qval").value; $("#qval").value=""; runSearch(TYPE,v); });
+$("#auditGo").addEventListener("click",()=>runAudit());
 $("#qval").addEventListener("keydown",e=>{ if(e.key==="Enter"){ const v=$("#qval").value; $("#qval").value=""; runSearch(TYPE,v); } });
 $("#logClear").addEventListener("click",()=>{ log=[]; store.set("kyther_log",log); renderLog(); });
 
@@ -896,6 +1071,8 @@ function showView(v){
   if(v==="reddit") $("#rdInput").focus();
   if(v==="threats") loadThreats();
   if(v==="pulse") initPulse();
+  if(v==="footprint") $("#fpInput").focus();
+  if(v==="imageintel") initImage();
   window.scrollTo(0,0);
 }
 function setType(t){ if(!TYPES.includes(t)) return; TYPE=t; document.querySelectorAll(".qs-btn").forEach(x=>x.classList.toggle("on",x.dataset.type===t)); }
@@ -914,9 +1091,37 @@ function selectLog(id){
   box.scrollTop=0;
 }
 function riskColor(tier){ return (tier==="Critical"||tier==="High")?"var(--dot-r)":tier==="Medium"?"var(--dot-y)":"var(--green)"; }
+function auditDetailHTML(entry,d){
+  const sec=(label,html)=>html?`<div class="ld-sec"><div class="plabel">${label}</div><div class="ld-body">${html}</div></div>`:"";
+  const head=`<div class="ld-h"><div><div class="ld-h-val">Security audit · kyther</div><div class="ld-h-meta"><span class="lr-type">--audit</span> · ${esc(entry.time)} · ${esc(entry.result)}</div></div><div class="ld-actions"><button class="ld-btn audit">⛊ Run audit again</button></div></div>`;
+  if(!d) return head+`<div class="ld-sec"><div class="ld-empty">Full audit detail wasn't saved for this run. Hit “Run audit again” to re-scan and capture everything.</div></div>`;
+  const b=d.bandit||{}, dp=d.deps||{};
+  const sevChip=s=>`<span class="aud-sev ${String(s||"").toLowerCase()}">${esc(s)}</span>`;
+  // code (bandit)
+  let code;
+  if(b.available===false) code='<div class="ld-empty">bandit not installed — <code>pip install bandit</code>.</div>';
+  else if(b.error) code=`<div class="ld-empty">bandit: ${esc(b.error)}</div>`;
+  else{
+    code=`<div class="aud-sum"><span class="${b.high?'aud-hi':'ok'}">${b.high||0} high</span> · <span class="aud-med">${b.medium||0} medium</span> · <span class="info">${b.low||0} low</span> <span class="info">· ${b.loc||0} LOC</span></div>`;
+    const rows=(b.findings||[]).map(f=>`<div class="ld-kv aud-row">${sevChip(f.sev)}<span class="kv">${esc(f.id)}</span><span class="val">${esc(f.file)}:${esc(f.line)}</span><span class="info">${esc(f.text)}</span></div>`).join("");
+    code+=rows||'<div class="ok">✓ no code issues.</div>';
+  }
+  // dependencies (pip-audit)
+  let deps;
+  if(dp.available===false) deps='<div class="ld-empty">pip-audit not installed — <code>pip install pip-audit</code>.</div>';
+  else if(dp.error) deps=`<div class="ld-empty">pip-audit: ${esc(dp.error)}</div>`;
+  else{
+    deps=`<div class="aud-sum"><span class="${dp.vuln_count?'aud-hi':'ok'}">${dp.vuln_count||0} CVEs</span> <span class="info">across ${dp.pkg_count||0} packages</span></div>`;
+    const rows=(dp.packages||[]).map(p=>`<div class="ld-kv aud-row"><span class="val">${esc(p.name)}</span><span class="kv">${esc(p.version)}</span><span class="info">${p.count} ${p.count===1?'advisory':'advisories'}${p.fix?' → '+esc(p.fix):''}</span></div>`).join("");
+    deps+=rows||'<div class="ok">✓ no known CVEs.</div>';
+  }
+  const raw=`<details class="ld-raw"><summary>raw capture (full JSON)</summary><pre class="ld-pre">${esc(JSON.stringify(d,null,2))}</pre></details>`;
+  return head+sec("Code — Bandit (SAST)",code)+sec("Dependencies — pip-audit",deps)+sec("Full capture",raw);
+}
 function detailHTML(entry){
-  const head=`<div class="ld-h"><div><div class="ld-h-val">${esc(entry.value)}</div><div class="ld-h-meta"><span class="lr-type">--${esc(entry.type)}</span> · ${esc(entry.time)} · ${esc(entry.result)}</div></div><div class="ld-actions"><button class="ld-btn run" data-type="${esc(entry.type)}" data-value="${esc(entry.value)}">▷ Run command again</button><button class="ld-btn again" data-type="${esc(entry.type)}" data-value="${esc(entry.value)}">⌕ Search again</button></div></div>`;
   const d=getDetail(entry.id);
+  if(entry.type==="audit"||(d&&d.__audit)) return auditDetailHTML(entry,d);
+  const head=`<div class="ld-h"><div><div class="ld-h-val">${esc(entry.value)}</div><div class="ld-h-meta"><span class="lr-type">--${esc(entry.type)}</span> · ${esc(entry.time)} · ${esc(entry.result)}</div></div><div class="ld-actions"><button class="ld-btn run" data-type="${esc(entry.type)}" data-value="${esc(entry.value)}">▷ Run command again</button><button class="ld-btn again" data-type="${esc(entry.type)}" data-value="${esc(entry.value)}">⌕ Search again</button></div></div>`;
   if(!d) return head + `<div class="ld-sec"><div class="ld-empty">Full details weren't saved for this search (it predates detail capture, or the scan errored). Hit “Run command again” to re-scan and capture everything.</div></div>`;
   const findings=d.findings||[], catf=c=>findings.filter(f=>f.category===c);
   const accounts=dedupe(catf("accounts").flatMap(f=>f.data.profiles||[]));
@@ -959,8 +1164,9 @@ function detailHTML(entry){
 }
 $("#logsFull").addEventListener("click",e=>{ const r=e.target.closest(".log-row"); if(r) selectLog(r.dataset.id); });
 $("#logsDetail").addEventListener("click",e=>{
-  const run=e.target.closest(".ld-btn.run"), again=e.target.closest(".ld-btn.again");
-  if(run){ showView("home"); setType(run.dataset.type); runSearch(run.dataset.type,run.dataset.value); }
+  const run=e.target.closest(".ld-btn.run"), again=e.target.closest(".ld-btn.again"), aud=e.target.closest(".ld-btn.audit");
+  if(aud){ showView("home"); runAudit(); }
+  else if(run){ showView("home"); setType(run.dataset.type); runSearch(run.dataset.type,run.dataset.value); }
   else if(again){ showView("home"); setType(again.dataset.type); $("#qval").value=again.dataset.value; $("#qval").focus(); }
 });
 $("#logsClearAll").addEventListener("click",()=>{ log=[]; store.set("kyther_log",log); store.set("kyther_details",{}); selectedLogId=null; renderLog(); renderLogsFull(); });
@@ -1277,13 +1483,112 @@ function renderPulseTopic(){
     return;
   }
   const head=`<div class="pulse-topic-head"><span class="pt-name">${esc(d.q)}</span><span class="pt-meta">${d.total} recent articles across ${d.sides.length} country editions — compare how each frames it</span></div>`;
+  const read=(d.read&&d.read.length)?`<div class="pulse-read"><div class="pr-h">Coverage read</div><ul>${d.read.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:"";
   const cols=(d.sides||[]).map(s=>`<div class="pulse-group"><div class="pg-head"><span class="pg-country">${esc(s.label)}</span><span class="pg-count">${s.articles.length}</span></div>${s.articles.map(pulseArt).join("")||'<div class="pulse-empty">no coverage in this edition.</div>'}</div>`).join("");
-  box.innerHTML=head+`<div class="pulse-region-grid">${cols}</div>`;
+  box.innerHTML=head+read+`<div class="pulse-region-grid">${cols}</div>`;
 }
 $("#pulseRegion").addEventListener("change",e=>loadPulseTrending(e.target.value));
 $("#pulseTrend").addEventListener("click",e=>{ const c=e.target.closest(".pulse-chip"); if(c) runPulseTopic(c.dataset.topic); });
 $("#pulseGo").addEventListener("click",()=>runPulseTopic($("#pulseInput").value));
 $("#pulseInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runPulseTopic($("#pulseInput").value); });
+
+// ---------- Company Footprint ----------
+function panelSec(label,html){ return html?`<div class="th-sec"><div class="plabel">${label}</div>${html}</div>`:""; }
+async function runFootprint(q){
+  q=(q||"").trim(); if(!q) return;
+  const el=$("#fpResult");
+  el.innerHTML='<div class="rd-empty">mapping footprint — subdomains, services, job posts… (can take ~20s)</div>';
+  try{
+    const r=await fetch(API+"/api/footprint?target="+encodeURIComponent(q));
+    const d=await r.json();
+    renderFootprint(d);
+  }catch(e){ el.innerHTML='<div class="rd-empty">footprint failed: '+esc(e.message)+'</div>'; }
+}
+function renderFootprint(d){
+  const el=$("#fpResult"), parts=[];
+  const sub=(d.subdomains||[]).length, svc=(d.services||[]).length, jc=d.jobs?d.jobs.count:0;
+  parts.push(`<div class="fp-summary"><span class="fp-stat"><b>${esc(d.domain||d.target)}</b></span><span class="fp-stat">${sub} subdomains</span><span class="fp-stat">${svc} hosts mapped</span><span class="fp-stat">${jc} job posts</span></div>`);
+  if(d.risk){
+    const r=d.risk, c=r.counts||{};
+    const chips=`<span class="risk-chip rk-high">${c.high||0} high</span><span class="risk-chip rk-med">${c.medium||0} med</span><span class="risk-chip rk-low">${c.low||0} low</span>`;
+    const rows=(r.findings||[]).map(f=>`<div class="risk-row rk-${esc(f.level)}"><span class="rk-dot"></span><span class="rk-svc">${esc(f.service)}${f.port?':'+f.port:''}</span><span class="rk-host">${esc(f.host||f.ip||'')}</span><span class="rk-why">${esc(f.why)}</span></div>`).join("");
+    parts.push(`<div class="verdict verdict-${esc(r.posture)}"><div class="vd-head"><span class="vd-tag">ATTACK SURFACE</span><span class="vd-text">${esc(r.headline)}</span></div><div class="risk-chips">${chips}</div>${rows?`<div class="risk-list">${rows}</div>`:'<div class="info" style="margin-top:6px">Nothing to prioritise — either genuinely clean, or the hosts didn\'t resolve to scannable IPs.</div>'}</div>`);
+  }
+  if(d.dns&&Object.keys(d.dns).length){
+    const rows=Object.entries(d.dns).map(([k,v])=>`<div class="ld-kv"><span class="kv">${esc(k)}</span><span class="val">${esc(Array.isArray(v)?v.join(", "):String(v))}</span></div>`).join("");
+    parts.push(panelSec("DNS",rows));
+  }
+  if(d.tech&&d.tech.title) parts.push(panelSec("Tech / server",`<div class="val">${esc(d.tech.title)}</div>`));
+  if(svc){
+    const rows=d.services.map(s=>{
+      const g=s.geo||{}, loc=[g.city,g.country].filter(Boolean).join(", ");
+      const ports=(s.ports||[]).join(", ")||"—";
+      const cve=(s.vulns||[]).length?`<span class="fp-cve">${s.vulns.length} CVE</span>`:"";
+      return `<div class="fp-svc"><div class="fp-svc-ip">${esc(s.ip)}${cve}</div><div class="info">${esc((s.hosts||[]).slice(0,2).join(", "))}</div><div class="info">ports: ${esc(ports)}</div><div class="info">${esc(loc)} ${esc(g.org||"")}</div></div>`;
+    }).join("");
+    parts.push(panelSec("Exposed services",`<div class="fp-svc-grid">${rows}</div>`));
+  }
+  if(sub) parts.push(panelSec(`Subdomains (${sub})`,`<div class="fp-subs">${d.subdomains.slice(0,120).map(s=>`<span>${esc(s)}</span>`).join("")}</div>`));
+  if(d.jobs){
+    const j=d.jobs;
+    const offices=(j.locations||[]).slice(0,24).map(l=>`<span class="fp-chip">${esc(l)}</span>`).join("")||'<span class="info">—</span>';
+    const posts=(j.postings||[]).slice(0,25).map(p=>`<div class="ld-kv"><a class="match" href="${esc(p.url||'#')}" target="_blank" rel="noopener">${esc(p.title||'?')}</a><span class="info">${esc(p.location||'')}</span></div>`).join("");
+    parts.push(panelSec(`Public job posts — ${j.count} via ${esc(j.source)}`,`<div class="plabel" style="margin:0 0 6px">Office locations</div><div class="fp-chips">${offices}</div><div class="plabel" style="margin:13px 0 6px">Recent openings</div>${posts}`));
+  }
+  if(d.note) parts.push(`<div class="rd-empty">${esc(d.note)}</div>`);
+  el.innerHTML=parts.join("")||'<div class="rd-empty">no footprint data.</div>';
+}
+$("#fpGo").addEventListener("click",()=>runFootprint($("#fpInput").value));
+$("#fpInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runFootprint($("#fpInput").value); });
+
+// ---------- Image Intelligence ----------
+function initImage(){ $("#imgUrl").focus(); }
+async function runImage(){
+  const url=$("#imgUrl").value.trim(), el=$("#imgResult");
+  if(!url && !window.__imgData){ el.innerHTML='<div class="rd-empty">paste an image URL or upload a file.</div>'; return; }
+  el.innerHTML='<div class="rd-empty">reading image…</div>';
+  try{
+    const body = window.__imgData ? {data:window.__imgData} : {url};
+    const r=await fetch(API+"/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    renderImage(await r.json(), url);
+  }catch(e){ el.innerHTML='<div class="rd-empty">failed: '+esc(e.message)+'</div>'; }
+}
+function renderImage(d,url){
+  const el=$("#imgResult");
+  if(!d.ok){ el.innerHTML='<div class="rd-empty">'+esc(d.error||'could not read image')+'</div>'; return; }
+  const parts=[`<div class="fp-summary"><span class="fp-stat"><b>${esc(d.format||'?')}</b></span><span class="fp-stat">${d.width}×${d.height}</span><span class="fp-stat">${((d.bytes||0)/1024|0)} KB</span></div>`];
+  if(d.resolved_image) parts.push(`<div class="info" style="margin:2px 0 4px">↳ analysed the page's main image: <a class="match" href="${esc(d.resolved_image)}" target="_blank" rel="noopener">${esc(d.resolved_image).slice(0,90)}…</a></div>`);
+  if(d.assessment){
+    const a=d.assessment;
+    const sigs=(a.signals||[]).map(s=>`<li class="sig-${esc(s.level)}">${esc(s.text)}</li>`).join("");
+    const steps=(a.next_steps||[]).map(s=>`<li>${esc(s)}</li>`).join("");
+    parts.push(`<div class="verdict verdict-${esc(a.confidence)}"><div class="vd-head"><span class="vd-tag">VERDICT</span><span class="vd-text">${esc(a.verdict)}</span><span class="vd-conf">${esc(a.confidence)}</span></div>${sigs?`<ul class="sig-list">${sigs}</ul>`:""}${steps?`<div class="vd-steps-h">Next steps</div><ol class="vd-steps">${steps}</ol>`:""}</div>`);
+  }
+  const ex=d.exif||{};
+  parts.push(panelSec("Metadata (EXIF)", Object.keys(ex).length
+    ? Object.entries(ex).map(([k,v])=>`<div class="ld-kv"><span class="kv">${esc(k)}</span><span class="val">${esc(v)}</span></div>`).join("")
+    : '<div class="info">No EXIF present — most likely stripped by the platform the image was uploaded to (normal for social media).</div>'));
+  if(d.gps){
+    const g=d.gps, maps=g.maps||{};
+    const btns=Object.entries(maps).map(([k,v])=>`<a class="launch-btn" href="${esc(v)}" target="_blank" rel="noopener">${esc(k)} ↗</a>`).join("")
+      ||`<a class="launch-btn" href="https://www.google.com/maps?q=${g.lat},${g.lon}" target="_blank" rel="noopener">Google Maps ↗</a>`;
+    const place=g.place?`<div class="val" style="margin-top:5px;color:var(--primary)">${esc(g.place)}</div>`:"";
+    parts.push(panelSec("📍 GPS embedded in image",`<div class="val">${esc(g.lat)}, ${esc(g.lon)}</div>${place}<div class="img-launchers" style="margin-top:7px">${btns}</div><div class="info" style="margin-top:6px">Open Street View and confirm the place actually matches the photo.</div>`));
+  }
+  const rs=d.reverse_search||{};
+  parts.push(panelSec("Reverse image search", Object.keys(rs).length
+    ? `<div class="img-launchers">`+Object.entries(rs).map(([k,v])=>`<a class="launch-btn" href="${esc(v)}" target="_blank" rel="noopener">${esc(k)} ↗</a>`).join("")+`</div><div class="info" style="margin-top:6px">TinEye sorts oldest-first → the earliest known upload of a viral image.</div>`
+    : '<div class="info">Paste a public image <b>URL</b> (not an upload) to get one-click reverse-search launchers.</div>'));
+  el.innerHTML=parts.join("");
+}
+$("#imgGo").addEventListener("click",()=>{ window.__imgData=null; runImage(); });
+$("#imgUrl").addEventListener("keydown",e=>{ if(e.key==="Enter"){ window.__imgData=null; runImage(); } });
+$("#imgFile").addEventListener("change",function(){
+  const f=this.files&&this.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ window.__imgData=rd.result; $("#imgUrl").value=""; runImage(); };
+  rd.readAsDataURL(f);
+});
 
 banner(); renderStats(); renderLog(); loadNews(); cmdIn.focus();
 

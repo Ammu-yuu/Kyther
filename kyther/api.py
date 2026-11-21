@@ -10,9 +10,12 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import math
+import sys
 import time
+from typing import Optional
 from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -25,7 +28,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .core import registry
-from .core.entities import Confidence, Entity, EntityType, Finding, RiskScore, detect_type
+from .core.entities import (
+    _DOMAIN_RE,
+    AnalyzerResult,
+    Confidence,
+    Entity,
+    EntityType,
+    Finding,
+    RiskScore,
+    detect_type,
+)
 from .core.orchestrator import scan
 from .report import Report
 
@@ -61,6 +73,7 @@ _CATEGORY = {
     "hunter": "emails",
     "emailrep": "identity",
     "sec_edgar": "identity",
+    "jobs": "footprint",
     "shodan_internetdb": "infrastructure",
     "phone_intel": "identity",
     "email_basic": "identity",
@@ -90,6 +103,7 @@ _CONFIDENCE = {
     "email_basic": Confidence.CONFIRMED,     # a Gravatar hit is a real account
     "profile_enrich": Confidence.CONFIRMED,  # structured API profile data
     "username": Confidence.CONFIRMED,        # WhatsMyName positive-match + control-probe
+    "jobs": Confidence.CONFIRMED,            # the company's own public ATS board
     "reddit": Confidence.CONFIRMED,          # Reddit's own public profile/activity JSON
     # strong-but-not-authoritative -> PROBABLE
     "holehe": Confidence.PROBABLE,
@@ -728,6 +742,26 @@ async def pulse_trending(region: str = Query("en", max_length=8)) -> dict:
     return payload
 
 
+def _pulse_read(sides: list[dict]) -> list[str] | None:
+    """Synthesise a short *coverage read* from the per-edition article counts —
+    where attention is concentrated and where it is absent. Strictly about
+    coverage volume, never 'opinion'."""
+    counts = [(s["label"], len(s.get("articles") or [])) for s in sides]
+    nonzero = sorted([c for c in counts if c[1] > 0], key=lambda c: -c[1])
+    if not nonzero:
+        return None
+    silent = [label for label, n in counts if n == 0]
+    total = sum(n for _, n in counts)
+    lines = [f"Most coverage in {nonzero[0][0]} ({nonzero[0][1]} stories)."]
+    if nonzero[0][1] >= 0.6 * total and len(nonzero) > 1:
+        lines.append("Attention is concentrated in one edition — reads as a domestic story more than a global one.")
+    elif len(nonzero) == len(counts):
+        lines.append("Picked up across every edition — broad international attention.")
+    if silent:
+        lines.append(f"Little to no coverage in: {', '.join(silent)} — a visible gap.")
+    return lines
+
+
 @app.get("/api/pulse/topic")
 async def pulse_topic(q: str = Query(..., min_length=2, max_length=100)) -> dict:
     """How a topic is covered across different countries' press (Google News
@@ -746,7 +780,8 @@ async def pulse_topic(q: str = Query(..., min_length=2, max_length=100)) -> dict
     if total == 0:
         return {"ok": False, "error": "source_busy",
                 "message": "Couldn't reach the news source right now — try again in a moment."}
-    payload = {"ok": True, "q": q, "total": total, "sides": sides}
+    payload = {"ok": True, "q": q, "total": total, "sides": sides,
+               "read": _pulse_read(sides)}
     _PULSE_CACHE[key] = (time.time(), payload)
     return payload
 
@@ -796,6 +831,398 @@ async def _perform_scan(req: ScanRequest) -> dict:
 @app.post("/api/scan")
 async def run_scan(req: ScanRequest) -> dict:
     return await _perform_scan(req)
+
+
+# --------------------------------------------------------------------------
+# Company Footprint — aggregates a company's external surface (subdomains, DNS,
+# tech, exposed services) plus its public hiring signals (job postings) into
+# one company-centric view. All keyless, built from existing analyzers + jobs.
+# --------------------------------------------------------------------------
+def _analyzer(name: str):
+    return next((a for a in registry.all_analyzers() if a.name == name), None)
+
+
+async def _run_safe(analyzer, entity) -> "AnalyzerResult | None":
+    if analyzer is None:
+        return None
+    try:
+        return await analyzer.run(entity)
+    except Exception:
+        return None
+
+
+async def _resolve_ips(host: str) -> list[str]:
+    """Resolve a hostname to its IPv4 addresses (best-effort, bounded)."""
+    loop = asyncio.get_event_loop()
+    try:
+        infos = await asyncio.wait_for(loop.getaddrinfo(host, None), timeout=5)
+    except Exception:
+        return []
+    return sorted({i[4][0] for i in infos if ":" not in i[4][0]})
+
+
+# Attack-surface risk catalog: internet-exposed ports that warrant attention,
+# with a severity and a plain-language reason. This is what turns a port list
+# into a prioritised "fix this first" assessment.
+_PORT_RISK: dict[int, tuple[str, str, str]] = {
+    23: ("high", "Telnet", "Unencrypted remote login — credentials travel in clear text."),
+    3389: ("high", "RDP", "Remote Desktop on the public internet — a top ransomware/brute-force entry point."),
+    445: ("high", "SMB", "Windows file sharing exposed — wormable (EternalBlue class)."),
+    139: ("high", "NetBIOS", "Legacy Windows sharing exposed."),
+    5900: ("high", "VNC", "Remote desktop, frequently left unauthenticated."),
+    3306: ("high", "MySQL", "Database reachable directly from the internet."),
+    5432: ("high", "PostgreSQL", "Database reachable directly from the internet."),
+    27017: ("high", "MongoDB", "Database exposed — historically shipped with no auth."),
+    6379: ("high", "Redis", "In-memory store, default no-auth — a common breach vector."),
+    9200: ("high", "Elasticsearch", "Data store exposed — the classic open-data leak."),
+    11211: ("high", "Memcached", "Exposed — used for DDoS amplification and data exposure."),
+    2375: ("high", "Docker API", "Unauthenticated Docker daemon = full host takeover."),
+    10250: ("high", "Kubelet", "Kubernetes node API exposed."),
+    21: ("medium", "FTP", "Often anonymous and/or unencrypted file access."),
+    5601: ("medium", "Kibana", "Elasticsearch dashboard exposed."),
+    9000: ("medium", "Admin/app", "Management or app port exposed — confirm what it serves."),
+    25: ("low", "SMTP", "Mail server — verify it is not an open relay."),
+    8080: ("low", "HTTP-alt", "Secondary web service — check what it hosts."),
+    8443: ("low", "HTTPS-alt", "Secondary web service — check what it hosts."),
+}
+_RISK_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def _footprint_risk(services: list[dict]) -> dict:
+    """Score the mapped services into a prioritised attack-surface assessment."""
+    findings: list[dict] = []
+    for s in services:
+        host = (s.get("hosts") or [None])[0] or s.get("ip")
+        for p in (s.get("ports") or []):
+            info = _PORT_RISK.get(p)
+            if info:
+                lvl, name, why = info
+                findings.append({"level": lvl, "ip": s.get("ip"), "host": host,
+                                 "port": p, "service": name, "why": why})
+        for v in (s.get("vulns") or []):
+            findings.append({"level": "high", "ip": s.get("ip"), "host": host,
+                             "port": None, "service": str(v),
+                             "why": "Known CVE flagged by Shodan InternetDB — patch or take offline."})
+    findings.sort(key=lambda f: (_RISK_ORDER.get(f["level"], 9), f.get("port") or 0))
+    counts = {"high": 0, "medium": 0, "low": 0}
+    for f in findings:
+        counts[f["level"]] = counts.get(f["level"], 0) + 1
+    if counts["high"]:
+        posture, headline = "exposed", f"{counts['high']} high-risk exposure(s) — address these first."
+    elif counts["medium"]:
+        posture, headline = "review", f"{counts['medium']} medium-risk service(s) to review."
+    elif findings:
+        posture, headline = "ok", "Only low-risk secondary services are exposed."
+    else:
+        posture, headline = "clean", "No notably risky ports or CVEs on the hosts I could resolve."
+    return {"posture": posture, "headline": headline, "counts": counts,
+            "findings": findings[:40]}
+
+
+async def _reverse_geocode(lat, lon) -> str | None:
+    """Coordinates → a human place name (OpenStreetMap Nominatim, keyless).
+    Best-effort: a failure just means the map links still work without a name."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=8, headers={"User-Agent": "kyther/0.1 (OSINT research use)"}
+        ) as h:
+            r = await h.get("https://nominatim.openstreetmap.org/reverse",
+                            params={"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 16})
+            if r.status_code == 200:
+                return ((r.json() or {}).get("display_name")) or None
+    except Exception:
+        pass
+    return None
+
+
+@app.get("/api/footprint")
+async def footprint(target: str = Query(..., min_length=1, max_length=253)) -> dict:
+    """Map a company's external footprint: subdomains, DNS, services, job posts."""
+    registry.load_builtins()
+    t = target.strip().lower()
+    is_domain = bool(_DOMAIN_RE.match(t))
+    domain = t if is_domain else None
+    out: dict = {
+        "target": target,
+        "domain": domain,
+        "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "subdomains": [],
+        "dns": {},
+        "tech": {},
+        "services": [],
+        "jobs": None,
+    }
+
+    # Job postings run for either a company name or a domain (slug-derived).
+    seed_type = EntityType.DOMAIN if is_domain else EntityType.COMPANY
+    jr = await _run_safe(_analyzer("jobs"), Entity.make(seed_type, t))
+    if jr and jr.findings:
+        out["jobs"] = jr.findings[0].data
+
+    # Infrastructure mapping needs a domain.
+    if not domain:
+        out["note"] = "Give a domain (e.g. acme.com) to map subdomains and services."
+        return out
+
+    dent = Entity.make(EntityType.DOMAIN, domain)
+    crt, dnsr, tech = await asyncio.gather(
+        _run_safe(_analyzer("crtsh"), dent),
+        _run_safe(_analyzer("dns"), dent),
+        _run_safe(_analyzer("http_probe"), dent),
+    )
+    subs: list[str] = []
+    if crt and crt.findings:
+        subs = crt.findings[0].data.get("subdomains", [])
+        out["subdomains"] = subs
+        for k in ("first_seen", "last_seen", "count"):
+            if k in crt.findings[0].data:
+                out.setdefault("ct", {})[k] = crt.findings[0].data[k]
+    if dnsr and dnsr.findings:
+        out["dns"] = dnsr.findings[0].data
+    if tech and tech.findings:
+        out["tech"] = {"title": tech.findings[0].title, **tech.findings[0].data}
+
+    # Resolve the apex + a capped set of subdomains, then enrich unique IPs with
+    # geolocation (for the map) and Shodan InternetDB (exposed ports/CVEs).
+    hosts = [domain] + subs[:12]
+    resolved = await asyncio.gather(*[_resolve_ips(h) for h in hosts])
+    host_ips: dict[str, list[str]] = {}
+    uniq: list[str] = []
+    for h, ips in zip(hosts, resolved):
+        if ips:
+            host_ips[h] = ips
+            for ip in ips:
+                if ip not in uniq:
+                    uniq.append(ip)
+    uniq = uniq[:15]
+
+    geo, sho = _analyzer("ip_geo"), _analyzer("shodan_internetdb")
+
+    async def _ip_info(ip: str) -> dict:
+        g, s = await asyncio.gather(
+            _run_safe(geo, Entity.make(EntityType.IP, ip)),
+            _run_safe(sho, Entity.make(EntityType.IP, ip)),
+        )
+        gd = g.findings[0].data if g and g.findings else {}
+        sd = s.findings[0].data if s and s.findings else {}
+        return {
+            "ip": ip,
+            "hosts": [h for h, ips in host_ips.items() if ip in ips],
+            "geo": {k: gd.get(k) for k in ("city", "regionName", "country", "lat", "lon", "org", "isp", "as")},
+            "ports": sd.get("ports", []),
+            "vulns": sd.get("vulns", []),
+            "software": sd.get("software", []),
+        }
+
+    out["services"] = await asyncio.gather(*[_ip_info(ip) for ip in uniq])
+    out["risk"] = _footprint_risk(out["services"])
+    return out
+
+
+# --------------------------------------------------------------------------
+# Image Intelligence — assisted verification & geolocation of a photo.
+# EXIF/metadata + GPS extraction (keyless), a provenance *verdict* that reads
+# the signals and says what to do next, GPS → place (reverse geocode) + map
+# links, and reverse-image-search launchers (manual, no scraping). Full auto
+# earliest-upload / visual geolocation needs a paid key or vision AI and is
+# deliberately out of scope.
+# --------------------------------------------------------------------------
+class ImageRequest(BaseModel):
+    url: Optional[str] = Field(None, max_length=2048)
+    data: Optional[str] = None  # base64 (optionally a data: URL) for local uploads
+
+
+_IMG_MAX_BYTES = 25 * 1024 * 1024
+
+
+@app.post("/api/image")
+async def image_intel(req: ImageRequest) -> dict:
+    """Extract EXIF/metadata + GPS and build reverse-search launchers for an image."""
+    from . import imageintel
+    from .core import netguard
+
+    raw: bytes | None = None
+    resolved_url = req.url
+    resolved_from_page = False
+    if req.url:
+        try:
+            resp = await netguard.safe_get(req.url, timeout=15)
+            resp.raise_for_status()
+        except netguard.BlockedTargetError as e:
+            return {"ok": False, "error": f"blocked target: {e}"}
+        except Exception as e:
+            return {"ok": False, "error": f"could not fetch URL: {e}"}
+        raw = resp.content
+        ctype = resp.headers.get("content-type", "").lower()
+        looks_html = "html" in ctype or raw.lstrip()[:15].lower().startswith((b"<!doctype", b"<html"))
+        if looks_html and "image" not in ctype:
+            # It's a web page — find its main image (og:image) and analyse that.
+            img_url = imageintel.og_image(raw.decode("utf-8", "ignore"), base_url=str(resp.url))
+            if not img_url:
+                return {
+                    "ok": False,
+                    "error": "That's a web page, not an image, and I couldn't find a main image (og:image) on it. "
+                    "Open the image directly — right-click it → Copy image address — and paste that URL.",
+                    "page": True,
+                }
+            try:
+                resp2 = await netguard.safe_get(img_url, timeout=15)
+                resp2.raise_for_status()
+            except netguard.BlockedTargetError as e:
+                return {"ok": False, "error": f"blocked target (page image): {e}"}
+            except Exception as e:
+                return {"ok": False, "error": f"could not fetch the page's image: {e}"}
+            raw = resp2.content
+            resolved_url = img_url
+            resolved_from_page = True
+    elif req.data:
+        d = req.data.strip()
+        if d.startswith("data:") and "," in d:
+            d = d.split(",", 1)[1]
+        try:
+            raw = base64.b64decode(d)
+        except Exception:
+            return {"ok": False, "error": "invalid base64 image data"}
+
+    if not raw:
+        return {"ok": False, "error": "provide an image 'url' or base64 'data'"}
+    if len(raw) > _IMG_MAX_BYTES:
+        return {"ok": False, "error": "image too large (>25MB)"}
+
+    try:
+        meta = await asyncio.to_thread(imageintel.extract_metadata, raw)
+    except Exception as e:
+        return {"ok": False, "error": f"could not read image: {e}"}
+
+    meta["ok"] = True
+    meta["bytes"] = len(raw)
+    meta["assessment"] = imageintel.assess(meta)
+    meta["reverse_search"] = imageintel.reverse_search_links(resolved_url if req.url else None)
+    if resolved_from_page:
+        meta["resolved_image"] = resolved_url
+    if meta.get("gps"):
+        g = meta["gps"]
+        g["maps"] = imageintel.map_links(g["lat"], g["lon"])
+        place = await _reverse_geocode(g["lat"], g["lon"])
+        if place:
+            g["place"] = place
+    return meta
+
+
+# --------------------------------------------------------------------------
+# Security self-audit — runs the same open-source scanners we recommend
+# (Bandit for the Python source, pip-audit for dependency CVEs) against
+# Kyther's own package and returns structured results for the UI.
+#
+# The scan target is fixed to this package directory — no user input is ever
+# passed to the subprocess, and both tools run via `sys.executable -m ...` so
+# we use whatever is installed in the active venv, never a shell.
+# --------------------------------------------------------------------------
+_PKG_DIR = Path(__file__).parent            # the kyther/ package (audit target)
+_REPO_DIR = _PKG_DIR.parent                 # repo root, for trimming paths
+
+
+async def _run_tool(args: list[str], timeout: float) -> tuple[int, str, str]:
+    """Run a subprocess and capture (returncode, stdout, stderr). Never raises."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+    except (FileNotFoundError, OSError) as e:
+        return (127, "", str(e))
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        return (124, "", "timeout")
+    return (proc.returncode, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"))
+
+
+async def _audit_bandit() -> dict:
+    """Static-analysis pass over the Python source. Non-zero exit is normal
+    (Bandit returns 1 when it finds issues), so we parse the JSON regardless."""
+    code, out, err = await _run_tool(
+        [sys.executable, "-m", "bandit", "-r", str(_PKG_DIR), "-f", "json", "-q"], 45
+    )
+    if code == 124:
+        return {"available": True, "error": "timed out"}
+    try:
+        data = json.loads(out)
+    except Exception:
+        if "No module named" in err or code == 127:
+            return {"available": False}
+        return {"available": True, "error": (err.strip() or "could not parse output")[:200]}
+    tot = data.get("metrics", {}).get("_totals", {})
+    rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    findings = sorted(
+        (
+            {
+                "id": r.get("test_id"),
+                "sev": r.get("issue_severity"),
+                "file": str(r.get("filename", "")).replace(str(_REPO_DIR) + "/", ""),
+                "line": r.get("line_number"),
+                "text": " ".join((r.get("issue_text") or "").split())[:96],
+            }
+            for r in data.get("results", [])
+        ),
+        key=lambda r: rank.get(r["sev"], 9),
+    )
+    return {
+        "available": True,
+        "loc": int(tot.get("loc", 0) or 0),
+        "high": int(tot.get("SEVERITY.HIGH", 0) or 0),
+        "medium": int(tot.get("SEVERITY.MEDIUM", 0) or 0),
+        "low": int(tot.get("SEVERITY.LOW", 0) or 0),
+        "findings": findings,
+    }
+
+
+async def _audit_deps() -> dict:
+    """Dependency vulnerability pass (pip-audit). Needs network for the advisory
+    DB, so it gets a generous timeout and degrades gracefully when offline."""
+    code, out, err = await _run_tool([sys.executable, "-m", "pip_audit", "-f", "json"], 90)
+    if code == 124:
+        return {"available": True, "error": "timed out (offline?)"}
+    try:
+        data = json.loads(out)
+    except Exception:
+        if "No module named" in err or code == 127:
+            return {"available": False}
+        return {"available": True, "error": (err.strip() or "could not parse output")[:200]}
+    deps = data.get("dependencies", []) if isinstance(data, dict) else data
+    pkgs, total = [], 0
+    for d in deps:
+        vulns = d.get("vulns") or []
+        if not vulns:
+            continue
+        total += len(vulns)
+        fixes = sorted({v for x in vulns for v in (x.get("fix_versions") or [])})
+        pkgs.append(
+            {
+                "name": d.get("name"),
+                "version": d.get("version"),
+                "count": len(vulns),
+                "fix": fixes[-1] if fixes else None,
+                "ids": [x.get("id") for x in vulns][:8],
+            }
+        )
+    pkgs.sort(key=lambda p: p["count"], reverse=True)
+    return {"available": True, "vuln_count": total, "pkg_count": len(pkgs), "packages": pkgs}
+
+
+@app.post("/api/audit")
+async def run_audit() -> dict:
+    """Self-audit Kyther: Bandit (source) + pip-audit (dependencies), in parallel."""
+    bandit, deps = await asyncio.gather(_audit_bandit(), _audit_deps())
+    return {
+        "ok": True,
+        "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "bandit": bandit,
+        "deps": deps,
+    }
 
 
 @app.post("/api/report")

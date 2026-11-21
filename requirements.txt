@@ -6,3 +6,6 @@ uvicorn>=0.29
 phonenumbers>=8.13
 holehe
 reportlab>=4.0
+pillow>=10.0     # Image Intelligence: EXIF/GPS extraction + provenance checks
+bandit>=1.7      # security self-audit: static analysis of the source
+pip-audit>=2.7   # security self-audit: dependency CVE scanning
