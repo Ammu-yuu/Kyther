@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import importlib
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -26,6 +27,10 @@ from kyther.api import (
     pulse_trending,
 )
 from kyther.imageintel import _to_degrees, assess, detect_format
+
+# The router module is also re-exported as a function on the package, so reach
+# it through sys.modules for patching.
+_FOOTPRINT_MODULE = importlib.import_module("kyther.api.footprint")
 
 
 class _FailingAnalyzer:
@@ -72,7 +77,7 @@ class FootprintCorrectnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(found["partial"])
 
     async def test_run_safe_reports_timeout_instead_of_silent_none(self):
-        with patch("kyther.api._FOOTPRINT_TIMEOUT", 0.01):
+        with patch.object(_FOOTPRINT_MODULE, "_FOOTPRINT_TIMEOUT", 0.01):
             result, err = await _run_safe(_SlowAnalyzer(), None, "slow")
         self.assertIsNone(result)
         self.assertIsNotNone(err)
@@ -83,9 +88,9 @@ class FootprintCorrectnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("unavailable", err)
 
     async def test_footprint_reports_failures_instead_of_clean(self):
-        with patch("kyther.api._analyzer",
-                   side_effect=lambda name: _FailingAnalyzer(name)), \
-             patch("kyther.api._resolve_ips", new=AsyncMock(return_value=[])):
+        with patch.object(_FOOTPRINT_MODULE, "_analyzer",
+                          side_effect=lambda name: _FailingAnalyzer(name)), \
+             patch.object(_FOOTPRINT_MODULE, "_resolve_ips", new=AsyncMock(return_value=[])):
             out = await footprint("example.com")
 
         self.assertFalse(out["ok"])
@@ -126,7 +131,7 @@ class PulseCorrectnessTests(unittest.IsolatedAsyncioTestCase):
         async def empty(_q, _edition, limit=8):
             return [], None
 
-        with patch("kyther.api._gnews_search", new=empty):
+        with patch("kyther.api.pulse._gnews_search", new=empty):
             out = await pulse_topic("zero-results-are-valid")
 
         self.assertTrue(out["ok"])
@@ -137,7 +142,7 @@ class PulseCorrectnessTests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_trending_payload_is_ok_not_source_busy(self):
         response = SimpleNamespace(status_code=200, json=lambda: {"items": [{"articles": []}]})
         client = SimpleNamespace(get=AsyncMock(return_value=response))
-        with patch("kyther.api.get_client", return_value=client):
+        with patch("kyther.api.pulse.get_client", return_value=client):
             out = await pulse_trending("en")
         self.assertTrue(out["ok"])
         self.assertEqual(out["topics"], [])
@@ -153,7 +158,7 @@ class PulseCorrectnessTests(unittest.IsolatedAsyncioTestCase):
                 return [{"title": "story", "url": "https://example.com/story"}], None
             return None, "HTTP 503"
 
-        with patch("kyther.api._gnews_search", new=partial):
+        with patch("kyther.api.pulse._gnews_search", new=partial):
             out = await pulse_topic("partial-editions-are-visible")
 
         self.assertTrue(out["ok"])

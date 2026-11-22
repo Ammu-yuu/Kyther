@@ -1,8 +1,11 @@
 /* Kyther service worker — network-first so content is always fresh, with an
    offline fallback to the cached app shell. Only registers over HTTPS or
    localhost (e.g. a Tailscale *.ts.net URL); a no-op over plain HTTP. */
-const CACHE = "kyther-shell-v1";
+const CACHE = "kyther-shell-v2";
 const SHELL = ["/", "/manifest.webmanifest",
+               "/assets/base.css", "/assets/views.css",
+               "/assets/js/app.js", "/assets/js/core.js", "/assets/js/scan.js",
+               "/assets/js/feeds.js", "/assets/js/views.js",
                "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
