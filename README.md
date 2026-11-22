@@ -92,6 +92,25 @@ Enable opt-in analyzers (account-enumeration / keyed) via env vars:
 OSINT_ENABLE_HOLEHE=1 uvicorn kyther.api:app --port 8099
 ```
 
+### Hardening configuration
+
+The API is keyless by design, so it is protected in depth rather than by a
+login:
+
+- **CORS allowlist** — `KYTHER_ALLOWED_ORIGINS` (comma-separated) defaults to
+  `http://127.0.0.1:8099,http://localhost:8099,null`. Add your tailnet origin
+  when serving on a Tailscale IP; `run-tailnet.sh` does this automatically.
+- **Rate limit** — `KYTHER_RATE_LIMIT` requests per minute per client IP on
+  `/api/` (default `60`). Returns `429` with a `Retry-After` header.
+- **Outbound fetches** use one pooled HTTP client with proxies disabled. The
+  SSRF guard pins the validated IP (preserving Host/SNI) and caps response
+  bodies at 25 MB per request.
+- Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  no-referrer` and `X-Frame-Options: DENY`.
+
+For anything beyond local/tailnet use, put Kyther behind an authenticating
+reverse proxy — it still has no user login.
+
 ## ⌨ The console
 
 | Command | Does |

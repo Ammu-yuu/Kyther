@@ -20,7 +20,6 @@ from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import urlsplit
 
-import httpx
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -39,18 +38,29 @@ from .core.entities import (
     detect_type,
 )
 from .core.orchestrator import scan
+from .net import close_client, get_client, sanitize_public_url
 from .report import Report
+from .security import KytherMiddleware, allowed_origins
 
 app = FastAPI(title="Kyther", version="0.1.0")
 
-# Allow the UI to call the API when it's opened from a different origin than the
-# server (e.g. a file:// page or an embedded preview frame).
+# Only the local UI (or an explicitly configured tailnet origin) may call the
+# API cross-origin. Same-origin requests are unaffected. Override with
+# KYTHER_ALLOWED_ORIGINS="http://100.x.y.z:8099,..." when running on the tailnet.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=allowed_origins(),
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+
+# Per-IP rate limit + conservative response headers for every endpoint.
+app.add_middleware(KytherMiddleware)
+
+
+@app.on_event("shutdown")
+async def _shutdown_http() -> None:
+    await close_client()
 
 WEB_DIR = Path(__file__).parent / "web"
 MAX_DEPTH = 3  # guard against runaway pivots from the public UI
@@ -353,12 +363,12 @@ async def news() -> list[dict]:
     if _NEWS_CACHE["data"] and now - _NEWS_CACHE["ts"] < _NEWS_TTL:
         return _NEWS_CACHE["data"]
     try:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(
-                "https://hn.algolia.com/api/v1/search_by_date",
-                params={"tags": "story", "query": "security", "hitsPerPage": "30"},
-            )
-            hits = (r.json() or {}).get("hits", [])
+        r = await get_client().get(
+            "https://hn.algolia.com/api/v1/search_by_date",
+            params={"tags": "story", "query": "security", "hitsPerPage": "30"},
+            timeout=10,
+        )
+        hits = (r.json() or {}).get("hits", [])
     except Exception:
         return _NEWS_CACHE["data"]  # serve stale cache on error, or [] if never fetched
     out = []
@@ -366,7 +376,7 @@ async def news() -> list[dict]:
         title = h.get("title")
         if not title or (h.get("points") or 0) < 2:
             continue
-        url = h.get("url") or f"https://news.ycombinator.com/item?id={h.get('objectID')}"
+        url = sanitize_public_url(h.get("url")) or f"https://news.ycombinator.com/item?id={h.get('objectID')}"
         source = urlsplit(url).netloc.replace("www.", "") or "ycombinator.com"
         out.append({"title": title, "source": source, "url": url, "ts": h.get("created_at_i")})
     out = out[:15]
@@ -424,7 +434,7 @@ def _trim_actor(v: dict) -> dict:
         "origin": m.get("country"),
         "sponsor": m.get("cfr-suspected-state-sponsor"),
         "targets": [t for t in targets if t][:6],
-        "ref": (_as_list(m.get("refs")) or [None])[0],
+        "ref": sanitize_public_url((_as_list(m.get("refs")) or [None])[0]),
     }
 
 
@@ -434,9 +444,8 @@ async def _fetch_actors() -> list:
     if c["data"] and now - c["ts"] < _ACTORS_TTL:
         return c["data"]
     try:
-        async with httpx.AsyncClient(timeout=25) as h:
-            r = await h.get(_MISP_ACTORS_URL)
-            values = (r.json() or {}).get("values", [])
+        r = await get_client().get(_MISP_ACTORS_URL, timeout=25)
+        values = (r.json() or {}).get("values", [])
     except Exception:
         return c["data"]
     out = [_trim_actor(v) for v in values
@@ -464,7 +473,7 @@ def _trim_group(g: dict) -> dict:
         "sponsor": None,
         "targets": [],
         # ransomware.live group page — safe; never the gang's onion leak site
-        "ref": g.get("url") or None,
+        "ref": sanitize_public_url(g.get("url")),
         "source": "ransomware.live",
     }
 
@@ -474,16 +483,17 @@ async def _rl_fetch_json(url: str, tries: int = 2):
     When throttled the API replies with a 404 / HTML page instead of a clean
     429, so we only accept a 200 with a JSON content-type and otherwise back off
     and retry. Returns the parsed JSON, or None if every attempt failed."""
-    async with httpx.AsyncClient(timeout=25, follow_redirects=True,
-                                 headers={"User-Agent": _TI_UA}) as h:
-        for i in range(tries):
-            try:
-                r = await h.get(url)
-                if r.status_code == 200 and "json" in r.headers.get("content-type", "").lower():
-                    return r.json()
-            except Exception:
-                pass
-            await asyncio.sleep(1.5 * (i + 1))  # 1.5s, 3s, 4.5s backoff
+    for i in range(tries):
+        try:
+            r = await get_client().get(
+                url, timeout=25, follow_redirects=True,
+                headers={"User-Agent": _TI_UA},
+            )
+            if r.status_code == 200 and "json" in r.headers.get("content-type", "").lower():
+                return r.json()
+        except Exception:
+            pass
+        await asyncio.sleep(1.5 * (i + 1))  # 1.5s, 3s, 4.5s backoff
     return None
 
 
@@ -534,7 +544,7 @@ async def _fetch_attacks() -> list:
         press = a.get("press")
         press_out = None
         if isinstance(press, dict) and press.get("source"):
-            press_out = {"url": press.get("source"),
+            press_out = {"url": sanitize_public_url(press.get("source")),
                          "summary": (press.get("summary") or "").strip()[:400]}
         out.append({
             "victim": a.get("victim") or a.get("post_title") or a.get("victim_name"),
@@ -545,7 +555,7 @@ async def _fetch_attacks() -> list:
             "description": (a.get("description") or "").strip()[:400],
             "domain": a.get("domain") or None,
             # neutral ransomware.live incident page — never the gang's leak site
-            "ref": a.get("url") or None,
+            "ref": sanitize_public_url(a.get("url")),
             "press": press_out,
         })
     out.sort(key=lambda x: x["date"] or "", reverse=True)
@@ -682,8 +692,10 @@ def _rss_articles(xml_text: str, limit: int = 8) -> list:
         if source and title.endswith(" - " + source):
             title = title[: -(len(source) + 3)].strip()
         pub = (item.findtext("pubDate") or "")[:16]
-        out.append({"title": title, "source": source,
-                    "url": (item.findtext("link") or "").strip(), "date": pub})
+        url = sanitize_public_url(item.findtext("link"))
+        if not url:
+            continue
+        out.append({"title": title, "source": source, "url": url, "date": pub})
         if len(out) >= limit:
             break
     return out
@@ -697,10 +709,12 @@ async def _gnews_search(q: str, edition: dict, limit: int = 8):
     headers = {"User-Agent": _TI_UA, "Cookie": "CONSENT=YES+cb.20210328-17-p0.en+FX+"}
     for attempt in range(2):
         try:
-            async with httpx.AsyncClient(timeout=12, headers=headers, follow_redirects=True) as h:
-                r = await h.get(_GNEWS, params=params)
-                if r.status_code == 200 and "<item>" in r.text:
-                    return _rss_articles(r.text, limit)
+            r = await get_client().get(
+                _GNEWS, params=params, headers=headers,
+                timeout=12, follow_redirects=True,
+            )
+            if r.status_code == 200 and "<item>" in r.text:
+                return _rss_articles(r.text, limit)
         except Exception:
             pass
         if attempt == 0:
@@ -721,9 +735,8 @@ async def pulse_trending(region: str = Query("en", max_length=8)) -> dict:
     url = _WIKI_TOP.format(proj=region, y=y.tm_year, m=y.tm_mon, d=y.tm_mday)
     topics: list = []
     try:
-        async with httpx.AsyncClient(timeout=15, headers={"User-Agent": _TI_UA}) as h:
-            r = await h.get(url)
-            items = ((r.json() or {}).get("items") or [{}])[0].get("articles", [])
+        r = await get_client().get(url, timeout=15)
+        items = ((r.json() or {}).get("items") or [{}])[0].get("articles", [])
         for a in items:
             t = a.get("article") or ""
             if any(t.startswith(p) or p in t for p in _WIKI_SKIP):
@@ -923,13 +936,13 @@ async def _reverse_geocode(lat, lon) -> str | None:
     """Coordinates → a human place name (OpenStreetMap Nominatim, keyless).
     Best-effort: a failure just means the map links still work without a name."""
     try:
-        async with httpx.AsyncClient(
-            timeout=8, headers={"User-Agent": "kyther/0.1 (OSINT research use)"}
-        ) as h:
-            r = await h.get("https://nominatim.openstreetmap.org/reverse",
-                            params={"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 16})
-            if r.status_code == 200:
-                return ((r.json() or {}).get("display_name")) or None
+        r = await get_client().get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 16},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            return ((r.json() or {}).get("display_name")) or None
     except Exception:
         pass
     return None
@@ -1046,7 +1059,7 @@ async def image_intel(req: ImageRequest) -> dict:
     resolved_from_page = False
     if req.url:
         try:
-            resp = await netguard.safe_get(req.url, timeout=15)
+            resp = await netguard.safe_get(req.url, timeout=15, max_bytes=_IMG_MAX_BYTES)
             resp.raise_for_status()
         except netguard.BlockedTargetError as e:
             return {"ok": False, "error": f"blocked target: {e}"}
@@ -1057,7 +1070,9 @@ async def image_intel(req: ImageRequest) -> dict:
         looks_html = "html" in ctype or raw.lstrip()[:15].lower().startswith((b"<!doctype", b"<html"))
         if looks_html and "image" not in ctype:
             # It's a web page — find its main image (og:image) and analyse that.
-            img_url = imageintel.og_image(raw.decode("utf-8", "ignore"), base_url=str(resp.url))
+            # Use the original page URL as the base: the guarded response was
+            # fetched from a pinned IP, so resp.url is not a usable base.
+            img_url = imageintel.og_image(raw.decode("utf-8", "ignore"), base_url=req.url)
             if not img_url:
                 return {
                     "ok": False,
@@ -1066,7 +1081,7 @@ async def image_intel(req: ImageRequest) -> dict:
                     "page": True,
                 }
             try:
-                resp2 = await netguard.safe_get(img_url, timeout=15)
+                resp2 = await netguard.safe_get(img_url, timeout=15, max_bytes=_IMG_MAX_BYTES)
                 resp2.raise_for_status()
             except netguard.BlockedTargetError as e:
                 return {"ok": False, "error": f"blocked target (page image): {e}"}
@@ -1097,7 +1112,9 @@ async def image_intel(req: ImageRequest) -> dict:
     meta["ok"] = True
     meta["bytes"] = len(raw)
     meta["assessment"] = imageintel.assess(meta)
-    meta["reverse_search"] = imageintel.reverse_search_links(resolved_url if req.url else None)
+    meta["reverse_search"] = imageintel.reverse_search_links(
+        sanitize_public_url(resolved_url) if req.url else None
+    )
     if resolved_from_page:
         meta["resolved_image"] = resolved_url
     if meta.get("gps"):

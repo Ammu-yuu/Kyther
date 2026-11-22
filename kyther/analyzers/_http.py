@@ -1,18 +1,32 @@
-"""Shared async HTTP helpers.
+"""Shared async HTTP helper for analyzers.
 
-A single client factory so every analyzer uses the same polite defaults:
-a descriptive User-Agent, redirects followed, and a sane timeout.
+Keeps the old ``async with client(timeout) as http:`` call shape while handing
+out the process-wide pooled client from :mod:`kyther.net`. Exiting the context
+does *not* close the shared client — that happens on app shutdown. Each call
+still carries the analyzer's own timeout, and redirects stay enabled as before.
 """
 from __future__ import annotations
 
-import httpx
+from ..net import get_client
 
 USER_AGENT = "kyther/0.1 (+https://example.local; research use)"
 
 
-def client(timeout: float = 15.0) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        timeout=timeout,
-        follow_redirects=True,
-        headers={"User-Agent": USER_AGENT},
-    )
+class _SharedClient:
+    def __init__(self, timeout: float = 15.0):
+        self.timeout = timeout
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url, **kwargs):
+        kwargs.setdefault("timeout", self.timeout)
+        kwargs.setdefault("follow_redirects", True)
+        return await get_client().get(url, **kwargs)
+
+
+def client(timeout: float = 15.0) -> _SharedClient:
+    return _SharedClient(timeout)

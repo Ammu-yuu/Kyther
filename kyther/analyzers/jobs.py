@@ -12,6 +12,7 @@ import re
 from ..core.base import Analyzer
 from ..core.entities import AnalyzerResult, Confidence, Entity, EntityType, Finding
 from ..core.registry import register
+from ..net import sanitize_public_url
 from ._http import client
 
 _GREENHOUSE = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
@@ -56,7 +57,7 @@ class JobsAnalyzer(Analyzer):
                                 "title": j.get("title"),
                                 "location": (j.get("location") or {}).get("name"),
                                 "department": None,
-                                "url": j.get("absolute_url"),
+                                "url": sanitize_public_url(j.get("absolute_url")),
                                 "updated": j.get("updated_at"),
                             }
                         )
@@ -77,7 +78,7 @@ class JobsAnalyzer(Analyzer):
                                     "title": j.get("text"),
                                     "location": cats.get("location"),
                                     "department": cats.get("team") or cats.get("department"),
-                                    "url": j.get("hostedUrl"),
+                                    "url": sanitize_public_url(j.get("hostedUrl")),
                                     "updated": None,
                                 }
                             )

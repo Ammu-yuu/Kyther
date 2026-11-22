@@ -686,11 +686,11 @@
             </ul>
           </div>
           <div class="img-launchers">
-            <a class="launch-btn" href="https://lens.google.com/" target="_blank" rel="noopener">Google Lens ↗</a>
-            <a class="launch-btn" href="https://yandex.com/images/" target="_blank" rel="noopener">Yandex Images ↗</a>
-            <a class="launch-btn" href="https://www.mapillary.com/app/" target="_blank" rel="noopener">Mapillary (street-level) ↗</a>
-            <a class="launch-btn" href="https://www.openstreetmap.org/" target="_blank" rel="noopener">OpenStreetMap ↗</a>
-            <a class="launch-btn" href="https://www.suncalc.org/" target="_blank" rel="noopener">SunCalc (shadows) ↗</a>
+            <a class="launch-btn" href="https://lens.google.com/" target="_blank" rel="noopener noreferrer">Google Lens ↗</a>
+            <a class="launch-btn" href="https://yandex.com/images/" target="_blank" rel="noopener noreferrer">Yandex Images ↗</a>
+            <a class="launch-btn" href="https://www.mapillary.com/app/" target="_blank" rel="noopener noreferrer">Mapillary (street-level) ↗</a>
+            <a class="launch-btn" href="https://www.openstreetmap.org/" target="_blank" rel="noopener noreferrer">OpenStreetMap ↗</a>
+            <a class="launch-btn" href="https://www.suncalc.org/" target="_blank" rel="noopener noreferrer">SunCalc (shadows) ↗</a>
           </div>
         </div>
       </div>
@@ -770,7 +770,17 @@ term.addEventListener("click",e=>{
   el.style.display=showing?"none":"inline";
   ex.textContent=(showing?"show ":"hide ")+ex.dataset.n+(showing?" ▸":" ▾");
 });
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const esc=s=>String(s).replace(/[&<>"'`]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;","`":"&#96;"}[c]));
+// Only http(s) URLs (or in-page anchors) may become clickable links. Third-party
+// data must never put javascript:/data: into an href, even when HTML-escaped.
+function safeHref(u){
+  const s=String(u==null?'':u).trim();
+  if(s.startsWith('#')) return esc(s);
+  try{
+    const parsed=new URL(s, location.href);
+    return (parsed.protocol==='http:'||parsed.protocol==='https:')?esc(parsed.href):'#';
+  }catch(e){ return '#'; }
+}
 
 function put(html,cls){ const d=document.createElement("div"); d.className="line "+(cls||""); d.innerHTML=html; term.appendChild(d); term.scrollTop=term.scrollHeight; return d; }
 function banner(){
@@ -962,7 +972,7 @@ function renderResult(d,secs){
     if(conf.length){
       const g={}; conf.forEach(p=>{const k=(p.category||"other").replace(/xx/gi,"").trim()||"other"; (g[k]=g[k]||[]).push(p);});
       Object.entries(g).sort((a,b)=>b[1].length-a[1].length).forEach(([c,ps])=>{
-        const names=ps.map(p=>`<a class="match" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.platform)}</a>`).join(" ");
+        const names=ps.map(p=>`<a class="match" href="${safeHref(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.platform)}</a>`).join(" ");
         put(`    <span class="kv">${esc(c)}:</span> ${names}`);
       });
     }
@@ -970,7 +980,7 @@ function renderResult(d,secs){
     if(unv.length){
       const id="unv_"+Math.random().toString(36).slice(2,9);
       put(`    <span class="info">unverified (status-code guesses — some don't exist): </span><a class="expander" data-t="${id}" data-n="${unv.length}">show ${unv.length} ▸</a>`);
-      const links=unv.map(p=>`<a href="${esc(p.url)}" target="_blank" rel="noopener" class="unv-link">${esc(p.platform)}</a>`).join(" ");
+      const links=unv.map(p=>`<a href="${safeHref(p.url)}" target="_blank" rel="noopener noreferrer" class="unv-link">${esc(p.platform)}</a>`).join(" ");
       put(`<span id="${id}" style="display:none">      ${links}</span>`);
     }
   }
@@ -1051,14 +1061,14 @@ async function loadNews(){
     const r=await fetch(API+"/api/news"); NEWS=await r.json();
     const el=$("#newsList");
     if(!NEWS.length){ el.innerHTML='<div class="news-loading">feed unavailable.</div>'; }
-    else el.innerHTML=NEWS.map(n=>`<a class="news-item" href="${esc(n.url)}" target="_blank" rel="noopener"><div class="t">${esc(n.title)}</div><div class="m">${esc(n.source)} · ${esc(ago(n.ts))}</div></a>`).join("");
+    else el.innerHTML=NEWS.map(n=>`<a class="news-item" href="${safeHref(n.url)}" target="_blank" rel="noopener noreferrer"><div class="t">${esc(n.title)}</div><div class="m">${esc(n.source)} · ${esc(ago(n.ts))}</div></a>`).join("");
   }catch{ $("#newsList").innerHTML='<div class="news-loading">feed unavailable.</div>'; }
   renderAttacks();
 }
 function renderAttacks(){
   const el=$("#attacksList"); if(!el) return;
   if(!NEWS.length){ el.innerHTML='<div class="news-loading">feed unavailable.</div>'; return; }
-  el.innerHTML=NEWS.map((n,i)=>`<a class="attack-item" href="${esc(n.url)}" target="_blank" rel="noopener"><div class="ai-idx">${String(i+1).padStart(2,"0")}</div><div class="ai-body"><div class="ai-title">${esc(n.title)}</div><div class="ai-meta">${esc(n.source)} · ${esc(ago(n.ts))} ago</div></div><div class="ai-arrow">↗</div></a>`).join("");
+  el.innerHTML=NEWS.map((n,i)=>`<a class="attack-item" href="${safeHref(n.url)}" target="_blank" rel="noopener noreferrer"><div class="ai-idx">${String(i+1).padStart(2,"0")}</div><div class="ai-body"><div class="ai-title">${esc(n.title)}</div><div class="ai-meta">${esc(n.source)} · ${esc(ago(n.ts))} ago</div></div><div class="ai-arrow">↗</div></a>`).join("");
 }
 
 // ---------- Side navigation / view switching ----------
@@ -1147,10 +1157,10 @@ function detailHTML(entry){
     acc+=`<div class="ld-accsum"><span class="ok">${conf.length} verified</span> <span class="kv">·</span> <span class="info">${unv.length} unverified</span> <span class="kv">·</span> ${accounts.length} total</div>`;
     if(conf.length){
       const g={}; conf.forEach(p=>{const k=(p.category||"other").replace(/xx/gi,"").trim()||"other";(g[k]=g[k]||[]).push(p);});
-      acc+=Object.entries(g).sort((a,b)=>b[1].length-a[1].length).map(([c,ps])=>`<div class="ld-accrow"><span class="kv">${esc(c)}:</span> ${ps.map(p=>`<a class="match" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.platform)}</a>`).join(" ")}</div>`).join("");
+      acc+=Object.entries(g).sort((a,b)=>b[1].length-a[1].length).map(([c,ps])=>`<div class="ld-accrow"><span class="kv">${esc(c)}:</span> ${ps.map(p=>`<a class="match" href="${safeHref(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.platform)}</a>`).join(" ")}</div>`).join("");
     }
     if(unv.length){
-      acc+=`<details class="ld-unv"><summary>show ${unv.length} unverified (status-code guesses — some don't exist)</summary><div class="ld-unv-links">${unv.map(p=>`<a class="unv-link" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.platform)}</a>`).join(" ")}</div></details>`;
+      acc+=`<details class="ld-unv"><summary>show ${unv.length} unverified (status-code guesses — some don't exist)</summary><div class="ld-unv-links">${unv.map(p=>`<a class="unv-link" href="${safeHref(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.platform)}</a>`).join(" ")}</div></details>`;
     }
   }
 
@@ -1203,12 +1213,12 @@ function renderReddit(d){
 
   const acts=(d.counts&&(d.counts.posts_fetched||0)+(d.counts.comments_fetched||0))||0;
   const maxSub=Math.max(1,...(d.top_subreddits||[]).map(s=>s.count));
-  const subs=(d.top_subreddits||[]).map(s=>`<a class="rd-bar" href="https://www.reddit.com/r/${encodeURIComponent(s.subreddit)}" target="_blank" rel="noopener"><span class="rb-name">r/${esc(s.subreddit)}</span><span class="rb-track"><span class="rb-fill" style="width:${Math.round(s.count/maxSub*100)}%"></span></span><span class="rb-n">${s.count}</span></a>`).join("");
+  const subs=(d.top_subreddits||[]).map(s=>`<a class="rd-bar" href="https://www.reddit.com/r/${encodeURIComponent(s.subreddit)}" target="_blank" rel="noopener noreferrer"><span class="rb-name">r/${esc(s.subreddit)}</span><span class="rb-track"><span class="rb-fill" style="width:${Math.round(s.count/maxSub*100)}%"></span></span><span class="rb-n">${s.count}</span></a>`).join("");
   const maxH=Math.max(1,...(d.activity_by_hour||[0]));
   const hours=(d.activity_by_hour||[]).map((n,i)=>`<span class="rd-hbar" title="${i}:00 UTC — ${n} actions"><span style="height:${Math.round(n/maxH*100)}%"></span></span>`).join("");
   const trophies=(d.trophies||[]).length?`<div class="rd-sec"><div class="plabel">Trophies</div><div class="rd-chips">${d.trophies.map(t=>`<span class="rd-chip">${esc(t)}</span>`).join("")}</div></div>`:"";
-  const posts=(d.recent_posts||[]).map(p=>`<a class="rd-item" href="${esc(p.url)}" target="_blank" rel="noopener"><div class="ri-title">${esc(p.title||"(untitled)")}</div><div class="ri-meta">r/${esc(p.subreddit)} · ↑${num(p.score)} · ${num(p.num_comments)} comments · ${esc((p.created||"").slice(0,10))}${p.nsfw?' · <span class="rd-nsfw">NSFW</span>':""}</div></a>`).join("")||'<div class="rd-empty">no public posts.</div>';
-  const cmts=(d.recent_comments||[]).map(c=>`<a class="rd-item" href="${esc(c.url)}" target="_blank" rel="noopener"><div class="ri-body">${esc(c.body||"")}</div><div class="ri-meta">r/${esc(c.subreddit)} · ↑${num(c.score)} · ${esc((c.created||"").slice(0,10))}</div></a>`).join("")||'<div class="rd-empty">no public comments.</div>';
+  const posts=(d.recent_posts||[]).map(p=>`<a class="rd-item" href="${safeHref(p.url)}" target="_blank" rel="noopener noreferrer"><div class="ri-title">${esc(p.title||"(untitled)")}</div><div class="ri-meta">r/${esc(p.subreddit)} · ↑${num(p.score)} · ${num(p.num_comments)} comments · ${esc((p.created||"").slice(0,10))}${p.nsfw?' · <span class="rd-nsfw">NSFW</span>':""}</div></a>`).join("")||'<div class="rd-empty">no public posts.</div>';
+  const cmts=(d.recent_comments||[]).map(c=>`<a class="rd-item" href="${safeHref(c.url)}" target="_blank" rel="noopener noreferrer"><div class="ri-body">${esc(c.body||"")}</div><div class="ri-meta">r/${esc(c.subreddit)} · ↑${num(c.score)} · ${esc((c.created||"").slice(0,10))}</div></a>`).join("")||'<div class="rd-empty">no public comments.</div>';
 
   const c=d.counts||{};
   const totals = c.posts_total!=null
@@ -1224,7 +1234,7 @@ function renderReddit(d){
           <div class="rd-sub2">${meta}</div>
           ${badges?`<div class="rd-badges">${badges}</div>`:""}
           ${d.bio?`<div class="rd-bio">${esc(d.bio)}</div>`:""}
-          <a class="rd-link" href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.url)} ↗</a>
+          <a class="rd-link" href="${safeHref(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.url)} ↗</a>
         </div>
       </div>
     </div>
@@ -1280,13 +1290,13 @@ function openIncident(i){
   const gang = actor ? `<a class="th-gang-link" data-actor="${esc(actor.name)}">${esc(a.group||"?")}</a>` : `<span style="color:#e0857f">${esc(a.group||"?")}</span>`;
   const where=[a.country,a.sector].filter(Boolean).map(esc).join(" · ");
   const links=[];
-  if(a.ref) links.push(`<a class="th-d-ref" href="${esc(a.ref)}" target="_blank" rel="noopener">view on ransomware.live ↗</a>`);
-  if(a.press && a.press.url) links.push(`<a class="th-d-ref" href="${esc(a.press.url)}" target="_blank" rel="noopener">read news coverage ↗</a>`);
+  if(a.ref) links.push(`<a class="th-d-ref" href="${safeHref(a.ref)}" target="_blank" rel="noopener noreferrer">view on ransomware.live ↗</a>`);
+  if(a.press && a.press.url) links.push(`<a class="th-d-ref" href="${safeHref(a.press.url)}" target="_blank" rel="noopener noreferrer">read news coverage ↗</a>`);
   $("#thModalBody").innerHTML=`
     <div class="d-head" style="padding:0 0 6px"><span>Incident brief</span><span class="d-case">${esc(a.date||"")}</span></div>
     <div class="th-d-name">${esc(a.victim||"Unknown victim")}</div>
     <div class="th-d-represent" style="margin-top:6px">claimed by ${gang}${where?` · ${flag(a.country)} ${where}`:""}</div>
-    ${a.domain?`<div class="th-d-represent"><span class="info">victim site:</span> <a class="th-d-ref" href="https://${esc(a.domain)}" target="_blank" rel="noopener">${esc(a.domain)} ↗</a></div>`:""}
+    ${a.domain?`<div class="th-d-represent"><span class="info">victim site:</span> <a class="th-d-ref" href="${safeHref('https://'+a.domain)}" target="_blank" rel="noopener noreferrer">${esc(a.domain)} ↗</a></div>`:""}
     ${a.description?`<div class="th-d-sec"><div class="plabel">About the victim</div><div class="th-d-desc">${esc(a.description)}</div></div>`:""}
     ${a.press&&a.press.summary?`<div class="th-d-sec"><div class="plabel">What happened</div><div class="th-d-desc">${esc(a.press.summary)}</div></div>`:""}
     ${links.length?`<div class="th-d-sec"><div class="plabel">View more</div>${links.map(l=>`<div style="padding:2px 0">${l}</div>`).join("")}</div>`:""}
@@ -1416,7 +1426,7 @@ function actorDetailHTML(a){
     ${a.description?`<div class="th-d-sec"><div class="plabel">Profile</div><div class="th-d-desc">${esc(a.description)}</div></div>`:""}
     ${(a.aliases||[]).length?`<div class="th-d-sec"><div class="plabel">Also known as</div><div class="th-d-aliases">${a.aliases.map(x=>`<span>${esc(x)}</span>`).join(" · ")}</div></div>`:""}
     ${atkHtml}
-    ${a.ref?`<div class="th-d-sec"><a class="th-d-ref" href="${esc(a.ref)}" target="_blank" rel="noopener">reference ↗</a></div>`:""}`;
+    ${a.ref?`<div class="th-d-sec"><a class="th-d-ref" href="${safeHref(a.ref)}" target="_blank" rel="noopener noreferrer">reference ↗</a></div>`:""}`;
 }
 
 function openActor(name){
@@ -1472,7 +1482,7 @@ async function runPulseTopic(q){
 }
 function pulseArt(a){
   const meta=[a.source,a.date].filter(Boolean).map(esc).join(" · ");
-  return `<a class="pulse-art" href="${esc(a.url)}" target="_blank" rel="noopener"><div class="pa-title">${esc(a.title||"(untitled)")}</div><div class="pa-meta">${meta}</div></a>`;
+  return `<a class="pulse-art" href="${safeHref(a.url)}" target="_blank" rel="noopener noreferrer"><div class="pa-title">${esc(a.title||"(untitled)")}</div><div class="pa-meta">${meta}</div></a>`;
 }
 function renderPulseTopic(){
   const d=pulseData, box=$("#pulseResult");
@@ -1532,7 +1542,7 @@ function renderFootprint(d){
   if(d.jobs){
     const j=d.jobs;
     const offices=(j.locations||[]).slice(0,24).map(l=>`<span class="fp-chip">${esc(l)}</span>`).join("")||'<span class="info">—</span>';
-    const posts=(j.postings||[]).slice(0,25).map(p=>`<div class="ld-kv"><a class="match" href="${esc(p.url||'#')}" target="_blank" rel="noopener">${esc(p.title||'?')}</a><span class="info">${esc(p.location||'')}</span></div>`).join("");
+    const posts=(j.postings||[]).slice(0,25).map(p=>`<div class="ld-kv"><a class="match" href="${safeHref(p.url||'#')}" target="_blank" rel="noopener noreferrer">${esc(p.title||'?')}</a><span class="info">${esc(p.location||'')}</span></div>`).join("");
     parts.push(panelSec(`Public job posts — ${j.count} via ${esc(j.source)}`,`<div class="plabel" style="margin:0 0 6px">Office locations</div><div class="fp-chips">${offices}</div><div class="plabel" style="margin:13px 0 6px">Recent openings</div>${posts}`));
   }
   if(d.note) parts.push(`<div class="rd-empty">${esc(d.note)}</div>`);
@@ -1557,7 +1567,7 @@ function renderImage(d,url){
   const el=$("#imgResult");
   if(!d.ok){ el.innerHTML='<div class="rd-empty">'+esc(d.error||'could not read image')+'</div>'; return; }
   const parts=[`<div class="fp-summary"><span class="fp-stat"><b>${esc(d.format||'?')}</b></span><span class="fp-stat">${d.width}×${d.height}</span><span class="fp-stat">${((d.bytes||0)/1024|0)} KB</span></div>`];
-  if(d.resolved_image) parts.push(`<div class="info" style="margin:2px 0 4px">↳ analysed the page's main image: <a class="match" href="${esc(d.resolved_image)}" target="_blank" rel="noopener">${esc(d.resolved_image).slice(0,90)}…</a></div>`);
+  if(d.resolved_image) parts.push(`<div class="info" style="margin:2px 0 4px">↳ analysed the page's main image: <a class="match" href="${safeHref(d.resolved_image)}" target="_blank" rel="noopener noreferrer">${esc(d.resolved_image).slice(0,90)}…</a></div>`);
   if(d.assessment){
     const a=d.assessment;
     const sigs=(a.signals||[]).map(s=>`<li class="sig-${esc(s.level)}">${esc(s.text)}</li>`).join("");
@@ -1570,14 +1580,14 @@ function renderImage(d,url){
     : '<div class="info">No EXIF present — most likely stripped by the platform the image was uploaded to (normal for social media).</div>'));
   if(d.gps){
     const g=d.gps, maps=g.maps||{};
-    const btns=Object.entries(maps).map(([k,v])=>`<a class="launch-btn" href="${esc(v)}" target="_blank" rel="noopener">${esc(k)} ↗</a>`).join("")
-      ||`<a class="launch-btn" href="https://www.google.com/maps?q=${g.lat},${g.lon}" target="_blank" rel="noopener">Google Maps ↗</a>`;
+    const btns=Object.entries(maps).map(([k,v])=>`<a class="launch-btn" href="${safeHref(v)}" target="_blank" rel="noopener noreferrer">${esc(k)} ↗</a>`).join("")
+      ||`<a class="launch-btn" href="${safeHref(`https://www.google.com/maps?q=${g.lat},${g.lon}`)}" target="_blank" rel="noopener noreferrer">Google Maps ↗</a>`;
     const place=g.place?`<div class="val" style="margin-top:5px;color:var(--primary)">${esc(g.place)}</div>`:"";
     parts.push(panelSec("📍 GPS embedded in image",`<div class="val">${esc(g.lat)}, ${esc(g.lon)}</div>${place}<div class="img-launchers" style="margin-top:7px">${btns}</div><div class="info" style="margin-top:6px">Open Street View and confirm the place actually matches the photo.</div>`));
   }
   const rs=d.reverse_search||{};
   parts.push(panelSec("Reverse image search", Object.keys(rs).length
-    ? `<div class="img-launchers">`+Object.entries(rs).map(([k,v])=>`<a class="launch-btn" href="${esc(v)}" target="_blank" rel="noopener">${esc(k)} ↗</a>`).join("")+`</div><div class="info" style="margin-top:6px">TinEye sorts oldest-first → the earliest known upload of a viral image.</div>`
+    ? `<div class="img-launchers">`+Object.entries(rs).map(([k,v])=>`<a class="launch-btn" href="${safeHref(v)}" target="_blank" rel="noopener noreferrer">${esc(k)} ↗</a>`).join("")+`</div><div class="info" style="margin-top:6px">TinEye sorts oldest-first → the earliest known upload of a viral image.</div>`
     : '<div class="info">Paste a public image <b>URL</b> (not an upload) to get one-click reverse-search launchers.</div>'));
   el.innerHTML=parts.join("");
 }

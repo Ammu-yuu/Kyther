@@ -16,5 +16,8 @@ fi
 pkill -f "uvicorn kyther.api" 2>/dev/null || true
 sleep 1
 
+# Keep the browser-side CORS allowlist in step with the address we bind to.
+export KYTHER_ALLOWED_ORIGINS="http://${TSIP}:8099,http://127.0.0.1:8099,http://localhost:8099,null"
+
 echo "Kyther → http://${TSIP}:8099   (open this on your tailnet devices)"
 exec .venv/bin/python -m uvicorn kyther.api:app --host "${TSIP}" --port 8099
