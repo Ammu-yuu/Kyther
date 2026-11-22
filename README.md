@@ -51,6 +51,9 @@ The UI is a sidebar workspace (Home is unchanged terminal-first):
 | **Logs** | every past scan; click one for its full dossier + *run again* / *search again* |
 | **Cyber Attacks** | live feed of breaches, exploits & incidents |
 | **Threat Actors** | hacker groups as dossier cards (motive, origin, threat rating) + a live global attack timeline with incident briefs |
+| **World Pulse** | Wikipedia most-read topics plus side-by-side news coverage across country editions — coverage volume, not tone or opinion |
+| **Company Footprint** | a domain's subdomains, DNS, exposed ports/CVEs and public job posts, with explicit notes when a source fails |
+| **Image Intelligence** | EXIF/GPS metadata, honest GPS-reference handling (no N/E guessing), and reverse-search launchers for human verification |
 
 ## 📸 Screenshots
 

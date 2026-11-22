@@ -146,7 +146,8 @@ class PureLogicTests(unittest.TestCase):
                  {"label": "India", "articles": []}]
         self.assertIsNone(_pulse_read(sides))
         sides[0]["articles"] = [{"title": "one"}]
-        self.assertIn("1 stories", _pulse_read(sides)[0])
+        self.assertIn("1 story", _pulse_read(sides)[0])
+        self.assertNotIn("1 stories", " ".join(_pulse_read(sides)))
 
     def test_image_assess_and_og_image(self):
         stripped = assess({"format": "JPEG", "exif": {}, "gps": None})

@@ -277,8 +277,7 @@
   .pulse-group .pg-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px;}
   .pulse-group .pg-country{color:var(--primary);font-size:12.5px;font-weight:500;}
   .pulse-group .pg-count{color:var(--dim);font-size:10.5px;}
-  .pulse-group.favorable .pg-country{color:var(--green);}
-  .pulse-group.critical .pg-country{color:var(--dot-r);}
+  .pulse-group.failed .pg-country{color:var(--dot-r);}
   .pulse-art{display:block;padding:7px 0;border-top:1px solid var(--border);}
   .pulse-art:first-child{border-top:0;}
   .pulse-art .pa-title{color:var(--output);font-size:12px;line-height:1.4;}
@@ -627,14 +626,15 @@
       <div class="wrap">
         <div class="view-head">
           <h2>World Pulse</h2>
-          <span class="vh-sub">what the world is paying attention to — and how any topic is covered across regions &amp; tone</span>
+          <span class="vh-sub">what the world is paying attention to — and how any topic is covered across regions</span>
         </div>
-        <div class="pulse-note">Shows <b>media coverage &amp; attention</b>, not verified public opinion. Sources are cited and linked — read across the sides and judge for yourself.</div>
+        <div class="pulse-note">Shows <b>media coverage &amp; attention</b>, not verified public opinion or sentiment. Sources are cited and linked — read across the editions and judge for yourself.</div>
 
         <div class="th-sec">
           <div class="pulse-trend-head">
             <div class="plabel">Trending now <span class="info">(most-read on Wikipedia)</span></div>
             <select id="pulseRegion" class="pulse-select"></select>
+            <button id="pulseRefresh" class="vh-btn" type="button">refresh</button>
           </div>
           <div class="pulse-trend" id="pulseTrend"><div class="rd-empty">loading trending topics…</div></div>
         </div>
@@ -724,9 +724,14 @@
   .launch-btn:hover{background:#211d29;border-color:#bfa4e4;color:var(--primary);}
   /* Verdict / assessment panel (Image Intel + Footprint) */
   .verdict{border:1px solid var(--border);border-left-width:3px;border-radius:8px;background:var(--panel);padding:13px 15px;margin:10px 0 14px;}
-  .verdict-probable,.verdict-exposed{border-left-color:#f87171;}
-  .verdict-possible,.verdict-review{border-left-color:#e0b64a;}
+  /* Risk postures: red/amber/green. Confidence words use neutral/blue tones —
+     "probable" is not a risk level, so it must not look like "exposed". */
+  .verdict-exposed{border-left-color:#f87171;}
+  .verdict-review{border-left-color:#e0b64a;}
   .verdict-ok,.verdict-clean{border-left-color:var(--green,#5bd6a3);}
+  .verdict-incomplete{border-left-color:#8b8399;}
+  .verdict-probable{border-left-color:#7aa2f7;}
+  .verdict-possible{border-left-color:#8b8399;}
   .vd-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
   .vd-tag{font-size:9.5px;letter-spacing:.14em;color:var(--dim);border:1px solid var(--border);border-radius:4px;padding:2px 6px;}
   .vd-text{font-size:14.5px;color:var(--primary);font-weight:600;}
@@ -780,6 +785,14 @@ function safeHref(u){
     const parsed=new URL(s, location.href);
     return (parsed.protocol==='http:'||parsed.protocol==='https:')?esc(parsed.href):'#';
   }catch(e){ return '#'; }
+}
+
+// Fetch + status check in one place: a 500 returning JSON must not be rendered
+// as if the lookup succeeded.
+async function apiJson(url, opts){
+  const r=await fetch(url,opts);
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  return r.json();
 }
 
 function put(html,cls){ const d=document.createElement("div"); d.className="line "+(cls||""); d.innerHTML=html; term.appendChild(d); term.scrollTop=term.scrollHeight; return d; }
@@ -1450,22 +1463,40 @@ $("#threatsRefresh").addEventListener("click",()=>loadThreats(true));
 
 // ---------- World Pulse view ----------
 let pulseInited=false, pulseTopic=null, pulseData=null;
+// Mirrors PULSE_REGIONS in api.py so the dropdown still populates on failure.
+const PULSE_REGIONS_FALLBACK={en:"Global (English)",es:"Spanish",hi:"Hindi / India",ar:"Arabic",fr:"French",de:"German",pt:"Portuguese",ja:"Japanese",ru:"Russian",zh:"Chinese"};
+function setPulseRegions(regions, selected){
+  const sel=$("#pulseRegion");
+  if(sel.options.length) return;
+  const src=(regions&&Object.keys(regions).length)?regions:PULSE_REGIONS_FALLBACK;
+  sel.innerHTML=Object.entries(src).map(([k,v])=>`<option value="${esc(k)}"${k===selected?" selected":""}>${esc(v)}</option>`).join("");
+}
 function initPulse(){
   if(pulseInited){ $("#pulseInput").focus(); return; }
   pulseInited=true;
   loadPulseTrending("en");
   $("#pulseInput").focus();
 }
+function trendRetryButton(id){
+  return `<div style="margin-top:10px"><button id="${id}" class="vh-btn">retry</button></div>`;
+}
 async function loadPulseTrending(region){
   const el=$("#pulseTrend"); el.innerHTML='<div class="rd-empty">loading trending topics…</div>';
   try{
-    const d=await (await fetch(API+"/api/pulse/trending?region="+encodeURIComponent(region))).json();
-    // populate region dropdown once
-    const sel=$("#pulseRegion");
-    if(!sel.options.length && d.regions){ sel.innerHTML=Object.entries(d.regions).map(([k,v])=>`<option value="${esc(k)}"${k===region?" selected":""}>${esc(v)}</option>`).join(""); }
-    if(!d.topics || !d.topics.length){ el.innerHTML='<div class="pulse-empty">trending unavailable for this region right now.</div>'; return; }
+    const d=await apiJson(API+"/api/pulse/trending?region="+encodeURIComponent(region));
+    setPulseRegions(d.regions, region);
+    if(!d.topics || !d.topics.length){
+      el.innerHTML=`<div class="pulse-empty${d.ok?"":" err"}">${esc(d.message||"trending unavailable for this region right now.")}</div>`+
+        (d.ok?"":trendRetryButton("pulseTrendRetry"));
+      const rb=$("#pulseTrendRetry"); if(rb) rb.addEventListener("click",()=>loadPulseTrending($("#pulseRegion").value||region));
+      return;
+    }
     el.innerHTML=d.topics.map(t=>`<span class="pulse-chip" data-topic="${esc(t.topic)}">${esc(t.topic)}${t.views?`<span class="pc-v">${Number(t.views).toLocaleString()}</span>`:""}</span>`).join("");
-  }catch(e){ el.innerHTML='<div class="pulse-empty err">couldn\'t load trending: '+esc(e.message)+'</div>'; }
+  }catch(e){
+    setPulseRegions(null, region);
+    el.innerHTML='<div class="pulse-empty err">couldn\'t load trending: '+esc(e.message)+'</div>'+trendRetryButton("pulseTrendRetry");
+    const rb=$("#pulseTrendRetry"); if(rb) rb.addEventListener("click",()=>loadPulseTrending($("#pulseRegion").value||region));
+  }
 }
 let pulseBusy=false;
 async function runPulseTopic(q){
@@ -1474,10 +1505,13 @@ async function runPulseTopic(q){
   $("#pulseInput").value=q;
   $("#pulseResult").innerHTML='<div class="rd-empty">gathering coverage across regions<span class="blink">_</span></div>';
   try{
-    const d=await (await fetch(API+"/api/pulse/topic?q="+encodeURIComponent(q))).json();
-    pulseData=d; renderPulseTopic();
+    pulseData=await apiJson(API+"/api/pulse/topic?q="+encodeURIComponent(q));
+    renderPulseTopic();
   }catch(e){
-    $("#pulseResult").innerHTML='<div class="pulse-empty err">lookup failed: '+esc(e.message)+'</div>';
+    pulseData=null;
+    $("#pulseResult").innerHTML='<div class="pulse-empty err">lookup failed: '+esc(e.message)+'</div>'+
+      '<div style="margin-top:10px"><button id="pulseRetry" class="vh-btn">retry</button></div>';
+    const rb=$("#pulseRetry"); if(rb) rb.addEventListener("click",()=>runPulseTopic(pulseTopic));
   }finally{ pulseBusy=false; $("#pulseGo").disabled=false; }
 }
 function pulseArt(a){
@@ -1492,11 +1526,20 @@ function renderPulseTopic(){
     const rb=$("#pulseRetry"); if(rb) rb.addEventListener("click",()=>runPulseTopic(pulseTopic));
     return;
   }
-  const head=`<div class="pulse-topic-head"><span class="pt-name">${esc(d.q)}</span><span class="pt-meta">${d.total} recent articles across ${d.sides.length} country editions — compare how each frames it</span></div>`;
+  const avail=(d.available==null?d.sides.length:d.available);
+  const meta=[`${d.total} recent article${d.total===1?"":"s"}`,
+              `across ${avail} of ${d.sides.length} country editions`];
+  if(d.partial) meta.push(`${(d.failed||[]).length} edition${(d.failed||[]).length===1?"":"s"} unavailable`);
+  const head=`<div class="pulse-topic-head"><span class="pt-name">${esc(d.q)}</span><span class="pt-meta">${esc(meta.join(" · "))} — compare coverage, not tone</span></div>`;
   const read=(d.read&&d.read.length)?`<div class="pulse-read"><div class="pr-h">Coverage read</div><ul>${d.read.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:"";
-  const cols=(d.sides||[]).map(s=>`<div class="pulse-group"><div class="pg-head"><span class="pg-country">${esc(s.label)}</span><span class="pg-count">${s.articles.length}</span></div>${s.articles.map(pulseArt).join("")||'<div class="pulse-empty">no coverage in this edition.</div>'}</div>`).join("");
+  const cols=(d.sides||[]).map(s=>{
+    if(s.error) return `<div class="pulse-group failed"><div class="pg-head"><span class="pg-country">${esc(s.label)}</span><span class="pg-count">unavailable</span></div><div class="pulse-empty err">edition failed: ${esc(s.error)}</div></div>`;
+    const n=(s.articles||[]).length;
+    return `<div class="pulse-group"><div class="pg-head"><span class="pg-country">${esc(s.label)}</span><span class="pg-count">${n} article${n===1?"":"s"}</span></div>${(s.articles||[]).map(pulseArt).join("")||'<div class="pulse-empty">no recent articles in this edition (valid zero result).</div>'}</div>`;
+  }).join("");
   box.innerHTML=head+read+`<div class="pulse-region-grid">${cols}</div>`;
 }
+$("#pulseRefresh").addEventListener("click",()=>loadPulseTrending($("#pulseRegion").value||"en"));
 $("#pulseRegion").addEventListener("change",e=>loadPulseTrending(e.target.value));
 $("#pulseTrend").addEventListener("click",e=>{ const c=e.target.closest(".pulse-chip"); if(c) runPulseTopic(c.dataset.topic); });
 $("#pulseGo").addEventListener("click",()=>runPulseTopic($("#pulseInput").value));
@@ -1509,20 +1552,29 @@ async function runFootprint(q){
   const el=$("#fpResult");
   el.innerHTML='<div class="rd-empty">mapping footprint — subdomains, services, job posts… (can take ~20s)</div>';
   try{
-    const r=await fetch(API+"/api/footprint?target="+encodeURIComponent(q));
-    const d=await r.json();
-    renderFootprint(d);
+    renderFootprint(await apiJson(API+"/api/footprint?target="+encodeURIComponent(q)));
   }catch(e){ el.innerHTML='<div class="rd-empty">footprint failed: '+esc(e.message)+'</div>'; }
 }
 function renderFootprint(d){
   const el=$("#fpResult"), parts=[];
+  if(d.ok===false){
+    const notes=(d.errors||[]).map(e=>`<li>${esc(e)}</li>`).join("");
+    el.innerHTML='<div class="pulse-empty err">Footprint incomplete — no usable source data.</div>'+
+      (notes?`<ul class="sig-list">${notes}</ul>`:"")+
+      '<div style="margin-top:10px"><button id="fpRetry" class="vh-btn">retry</button></div>';
+    const rb=$("#fpRetry"); if(rb) rb.addEventListener("click",()=>runFootprint(d.target||$("#fpInput").value));
+    return;
+  }
   const sub=(d.subdomains||[]).length, svc=(d.services||[]).length, jc=d.jobs?d.jobs.count:0;
   parts.push(`<div class="fp-summary"><span class="fp-stat"><b>${esc(d.domain||d.target)}</b></span><span class="fp-stat">${sub} subdomains</span><span class="fp-stat">${svc} hosts mapped</span><span class="fp-stat">${jc} job posts</span></div>`);
+  if((d.errors||[]).length){
+    parts.push(`<div class="pulse-empty err" style="margin-bottom:10px">Source / coverage notes — results may be partial:</div><ul class="sig-list">${d.errors.map(e=>`<li>${esc(e)}</li>`).join("")}</ul>`);
+  }
   if(d.risk){
     const r=d.risk, c=r.counts||{};
     const chips=`<span class="risk-chip rk-high">${c.high||0} high</span><span class="risk-chip rk-med">${c.medium||0} med</span><span class="risk-chip rk-low">${c.low||0} low</span>`;
     const rows=(r.findings||[]).map(f=>`<div class="risk-row rk-${esc(f.level)}"><span class="rk-dot"></span><span class="rk-svc">${esc(f.service)}${f.port?':'+f.port:''}</span><span class="rk-host">${esc(f.host||f.ip||'')}</span><span class="rk-why">${esc(f.why)}</span></div>`).join("");
-    parts.push(`<div class="verdict verdict-${esc(r.posture)}"><div class="vd-head"><span class="vd-tag">ATTACK SURFACE</span><span class="vd-text">${esc(r.headline)}</span></div><div class="risk-chips">${chips}</div>${rows?`<div class="risk-list">${rows}</div>`:'<div class="info" style="margin-top:6px">Nothing to prioritise — either genuinely clean, or the hosts didn\'t resolve to scannable IPs.</div>'}</div>`);
+    parts.push(`<div class="verdict verdict-${esc(r.posture)}"><div class="vd-head"><span class="vd-tag">ATTACK SURFACE</span><span class="vd-text">${esc(r.headline)}</span></div><div class="risk-chips">${chips}</div>${rows?`<div class="risk-list">${rows}</div>`:`<div class="info" style="margin-top:6px">${r.posture==="incomplete"?"Checks incomplete — exposure can't be judged from what was collected (see notes above).":"No notable ports or CVEs on the hosts that were actually scanned."}</div>`}</div>`);
   }
   if(d.dns&&Object.keys(d.dns).length){
     const rows=Object.entries(d.dns).map(([k,v])=>`<div class="ld-kv"><span class="kv">${esc(k)}</span><span class="val">${esc(Array.isArray(v)?v.join(", "):String(v))}</span></div>`).join("");
@@ -1559,8 +1611,8 @@ async function runImage(){
   el.innerHTML='<div class="rd-empty">reading image…</div>';
   try{
     const body = window.__imgData ? {data:window.__imgData} : {url};
-    const r=await fetch(API+"/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    renderImage(await r.json(), url);
+    const r=await apiJson(API+"/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    renderImage(r, url);
   }catch(e){ el.innerHTML='<div class="rd-empty">failed: '+esc(e.message)+'</div>'; }
 }
 function renderImage(d,url){
@@ -1577,13 +1629,23 @@ function renderImage(d,url){
   const ex=d.exif||{};
   parts.push(panelSec("Metadata (EXIF)", Object.keys(ex).length
     ? Object.entries(ex).map(([k,v])=>`<div class="ld-kv"><span class="kv">${esc(k)}</span><span class="val">${esc(v)}</span></div>`).join("")
-    : '<div class="info">No EXIF present — most likely stripped by the platform the image was uploaded to (normal for social media).</div>'));
+    : '<div class="info">No EXIF present — it may have been stripped on upload, or never embedded. Absence alone proves nothing.</div>'));
   if(d.gps){
-    const g=d.gps, maps=g.maps||{};
-    const btns=Object.entries(maps).map(([k,v])=>`<a class="launch-btn" href="${safeHref(v)}" target="_blank" rel="noopener noreferrer">${esc(k)} ↗</a>`).join("")
-      ||`<a class="launch-btn" href="${safeHref(`https://www.google.com/maps?q=${g.lat},${g.lon}`)}" target="_blank" rel="noopener noreferrer">Google Maps ↗</a>`;
-    const place=g.place?`<div class="val" style="margin-top:5px;color:var(--primary)">${esc(g.place)}</div>`:"";
-    parts.push(panelSec("📍 GPS embedded in image",`<div class="val">${esc(g.lat)}, ${esc(g.lon)}</div>${place}<div class="img-launchers" style="margin-top:7px">${btns}</div><div class="info" style="margin-top:6px">Open Street View and confirm the place actually matches the photo.</div>`));
+    const g=d.gps;
+    if(g.exact===false){
+      // Unsigned EXIF magnitudes are not a location. Never generate map links
+      // from them — guessing N/E would silently put the pin in the wrong place.
+      const mags=[g.lat_magnitude,g.lon_magnitude].filter(v=>v!=null).join(", ")||"—";
+      const refs=[g.lat_ref?`latitude ${g.lat_ref}`:"latitude ref missing",
+                  g.lon_ref?`longitude ${g.lon_ref}`:"longitude ref missing"].join(" · ");
+      parts.push(panelSec("⚠ Incomplete GPS in image",`<div class="val">unsigned magnitudes: ${esc(mags)}</div><div class="info" style="margin-top:5px">${esc(refs)}</div><div class="info" style="margin-top:6px">${esc(g.note||"Hemisphere references are missing; no map or place lookup was attempted.")}</div>`));
+    }else{
+      const maps=g.maps||{};
+      const btns=Object.entries(maps).map(([k,v])=>`<a class="launch-btn" href="${safeHref(v)}" target="_blank" rel="noopener noreferrer">${esc(k)} ↗</a>`).join("")
+        ||`<a class="launch-btn" href="${safeHref(`https://www.google.com/maps?q=${g.lat},${g.lon}`)}" target="_blank" rel="noopener noreferrer">Google Maps ↗</a>`;
+      const place=g.place?`<div class="val" style="margin-top:5px;color:var(--primary)">${esc(g.place)}</div>`:"";
+      parts.push(panelSec("📍 GPS embedded in image",`<div class="val">${esc(g.lat)}, ${esc(g.lon)}</div>${place}<div class="img-launchers" style="margin-top:7px">${btns}</div><div class="info" style="margin-top:6px">Open Street View and confirm the place actually matches the photo.</div>`));
+    }
   }
   const rs=d.reverse_search||{};
   parts.push(panelSec("Reverse image search", Object.keys(rs).length

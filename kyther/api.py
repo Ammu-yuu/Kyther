@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import json
 import math
 import sys
@@ -635,13 +636,13 @@ async def _threats_startup() -> None:
     asyncio.create_task(_threat_refresher())
 
 
-# ── World Pulse: trending topics + how a topic is covered across regions/tone ─
-# Keyless. Trending = Wikipedia's most-read articles (fast, reliable).
-# Per-topic discourse = GDELT (global news in 100+ languages, with source
-# country + tone). GDELT is powerful but slow/flaky, so every call has a tight
-# timeout, one retry, a descriptive UA, and results are cached; failures return
-# a soft "source busy" rather than hanging. Everything is framed as *coverage &
-# attention*, never as "public opinion".
+# ── World Pulse: trending topics + cross-edition news coverage ─
+# Keyless. Trending = Wikipedia's most-read articles (fast, reliable). Per-topic
+# coverage = Google News RSS from a few country editions. There is no tone or
+# sentiment analysis here: this compares *which editions ran stories*, never
+# "public opinion" or "framing". Every call has a timeout, one retry and a
+# descriptive UA; failures are reported per edition, and a valid zero-result
+# feed is reported as zero coverage — not as a source failure.
 _GNEWS = "https://news.google.com/rss/search"
 _WIKI_TOP = "https://wikimedia.org/api/rest_v1/metrics/pageviews/top/{proj}.wikipedia/all-access/{y}/{m:02d}/{d:02d}"
 # Country editions of Google News used to show a topic's "sides" — how the same
@@ -676,15 +677,20 @@ def _pulse_cached(key: str, ttl: int):
     return None
 
 
-def _rss_articles(xml_text: str, limit: int = 8) -> list:
-    """Parse a Google News RSS feed into article dicts. Google News titles end
-    in ' - Source'; we split that off and use the <source> element."""
+def _parse_rss(xml_text: str, limit: int = 8) -> tuple[list, bool]:
+    """Parse Google News RSS. Returns (articles, valid_feed).
+
+    An empty <channel> is a valid zero-result feed; an HTML error/interstitial
+    is not. Keeping those distinct is the whole point of this helper.
+    """
     import xml.etree.ElementTree as ET
-    out = []
+    out: list = []
     try:
         root = ET.fromstring(xml_text)
     except Exception:
-        return out
+        return out, False
+    if root.tag.lower() != "rss" and root.find(".//channel") is None:
+        return out, False
     for item in root.iter("item"):
         title = (item.findtext("title") or "").strip()
         src_el = item.find("source")
@@ -698,28 +704,43 @@ def _rss_articles(xml_text: str, limit: int = 8) -> list:
         out.append({"title": title, "source": source, "url": url, "date": pub})
         if len(out) >= limit:
             break
-    return out
+    return out, True
 
 
-async def _gnews_search(q: str, edition: dict, limit: int = 8):
-    """Search Google News RSS for a topic in one country edition. Fast, keyless.
-    Returns a list of articles, or None on failure. The CONSENT cookie skips
-    Google's consent interstitial (which otherwise returns an item-less page)."""
+def _rss_articles(xml_text: str, limit: int = 8) -> list:
+    """Compatibility wrapper: articles only, no feed-validity flag."""
+    return _parse_rss(xml_text, limit)[0]
+
+
+async def _gnews_search(q: str, edition: dict, limit: int = 8) -> tuple[list | None, str | None]:
+    """Search one country edition. Returns (articles, error).
+
+    ``([], None)`` means the feed answered with zero stories. ``(None, reason)``
+    means the source failed — those are different states and are reported
+    separately by /api/pulse/topic. The CONSENT cookie skips Google's consent
+    interstitial (which otherwise returns an item-less page).
+    """
     params = {"q": q.strip(), "hl": edition["hl"], "gl": edition["gl"], "ceid": edition["ceid"]}
     headers = {"User-Agent": _TI_UA, "Cookie": "CONSENT=YES+cb.20210328-17-p0.en+FX+"}
+    last_error = "unknown error"
     for attempt in range(2):
         try:
             r = await get_client().get(
                 _GNEWS, params=params, headers=headers,
                 timeout=12, follow_redirects=True,
             )
-            if r.status_code == 200 and "<item>" in r.text:
-                return _rss_articles(r.text, limit)
-        except Exception:
-            pass
+            if r.status_code != 200:
+                last_error = f"HTTP {r.status_code}"
+            else:
+                articles, valid = _parse_rss(r.text, limit)
+                if valid:
+                    return articles, None
+                last_error = "unexpected feed response"
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {str(e)[:100]}"
         if attempt == 0:
             await asyncio.sleep(1)
-    return None
+    return None, last_error
 
 
 @app.get("/api/pulse/trending")
@@ -734,44 +755,59 @@ async def pulse_trending(region: str = Query("en", max_length=8)) -> dict:
     y = time.gmtime(time.time() - 86400)  # yesterday (last complete day, UTC)
     url = _WIKI_TOP.format(proj=region, y=y.tm_year, m=y.tm_mon, d=y.tm_mday)
     topics: list = []
+    error = None
     try:
         r = await get_client().get(url, timeout=15)
-        items = ((r.json() or {}).get("items") or [{}])[0].get("articles", [])
-        for a in items:
-            t = a.get("article") or ""
-            if any(t.startswith(p) or p in t for p in _WIKI_SKIP):
-                continue
-            if any(b in t.lower().replace("_", " ") for b in _WIKI_BLOCK):
-                continue
-            topics.append({"topic": t.replace("_", " "), "views": a.get("views"),
-                           "url": f"https://{region}.wikipedia.org/wiki/{t}"})
-            if len(topics) >= 20:
-                break
-    except Exception:
-        pass
-    payload = {"region": region, "regions": PULSE_REGIONS, "topics": topics}
+        if r.status_code != 200:
+            error = f"HTTP {r.status_code}"
+        else:
+            items = ((r.json() or {}).get("items") or [{}])[0].get("articles", [])
+            for a in items:
+                t = a.get("article") or ""
+                if any(t.startswith(p) or p in t for p in _WIKI_SKIP):
+                    continue
+                if any(b in t.lower().replace("_", " ") for b in _WIKI_BLOCK):
+                    continue
+                topics.append({"topic": t.replace("_", " "), "views": a.get("views"),
+                               "url": f"https://{region}.wikipedia.org/wiki/{t}"})
+                if len(topics) >= 20:
+                    break
+    except Exception as e:
+        error = f"{type(e).__name__}: {str(e)[:100]}"
+    # A correctly-parsed feed with no topics is still a successful (if empty)
+    # fetch; only transport/HTTP/parse failures set ok=False.
+    payload = {"ok": error is None, "region": region, "regions": PULSE_REGIONS,
+               "topics": topics}
+    if error:
+        payload["error"] = "source_busy"
+        payload["message"] = f"Couldn't load trending topics ({error}). Try refresh."
+    elif not topics:
+        payload["message"] = "No trending topics published for this edition right now."
     if topics:
         _PULSE_CACHE[key] = (time.time(), payload)
     return payload
 
 
 def _pulse_read(sides: list[dict]) -> list[str] | None:
-    """Synthesise a short *coverage read* from the per-edition article counts —
-    where attention is concentrated and where it is absent. Strictly about
-    coverage volume, never 'opinion'."""
+    """Short *coverage read* from per-edition article counts.
+
+    Strictly about coverage volume — no claims about opinion, domestic-ness or
+    'gaps' when an edition simply happened to return no stories in this sample.
+    """
     counts = [(s["label"], len(s.get("articles") or [])) for s in sides]
     nonzero = sorted([c for c in counts if c[1] > 0], key=lambda c: -c[1])
     if not nonzero:
         return None
     silent = [label for label, n in counts if n == 0]
     total = sum(n for _, n in counts)
-    lines = [f"Most coverage in {nonzero[0][0]} ({nonzero[0][1]} stories)."]
-    if nonzero[0][1] >= 0.6 * total and len(nonzero) > 1:
-        lines.append("Attention is concentrated in one edition — reads as a domestic story more than a global one.")
+    top = nonzero[0]
+    lines = [f"Most coverage in {top[0]} ({top[1]} {'story' if top[1] == 1 else 'stories'})."]
+    if top[1] >= 0.6 * total and len(nonzero) > 1:
+        lines.append("Coverage is concentrated in one edition — compare it with the others before calling it a global story.")
     elif len(nonzero) == len(counts):
-        lines.append("Picked up across every edition — broad international attention.")
+        lines.append("At least one story in every edition sampled in this feed set.")
     if silent:
-        lines.append(f"Little to no coverage in: {', '.join(silent)} — a visible gap.")
+        lines.append(f"No recent articles in: {', '.join(silent)} (in this sample).")
     return lines
 
 
@@ -784,17 +820,28 @@ async def pulse_topic(q: str = Query(..., min_length=2, max_length=100)) -> dict
     if cached is not None:
         return cached
     results = await asyncio.gather(*[_gnews_search(q, PULSE_EDITIONS[c]) for c in _SIDES_ORDER])
-    sides = []
+    sides: list[dict] = []
+    failed: list[dict] = []
     total = 0
-    for code, arts in zip(_SIDES_ORDER, results):
-        arts = arts or []
-        total += len(arts)
-        sides.append({"code": code, "label": PULSE_EDITIONS[code]["label"], "articles": arts})
-    if total == 0:
+    for code, (arts, err) in zip(_SIDES_ORDER, results):
+        label = PULSE_EDITIONS[code]["label"]
+        if err:
+            failed.append({"code": code, "label": label, "error": err})
+            sides.append({"code": code, "label": label, "articles": [], "error": err})
+            continue
+        total += len(arts or [])
+        sides.append({"code": code, "label": label, "articles": arts or [], "error": None})
+    if failed and total == 0:
         return {"ok": False, "error": "source_busy",
-                "message": "Couldn't reach the news source right now — try again in a moment."}
+                "message": "Couldn't reach any news edition right now — try again in a moment.",
+                "failed": failed, "sides": sides}
+    ok_sides = [s for s in sides if not s.get("error")]
+    read = _pulse_read(ok_sides)
+    if total == 0:
+        read = ["No recent articles in any edition — a valid zero-result fetch, not a source failure."]
     payload = {"ok": True, "q": q, "total": total, "sides": sides,
-               "read": _pulse_read(sides)}
+               "available": len(ok_sides), "failed": failed,
+               "partial": bool(failed), "read": read}
     _PULSE_CACHE[key] = (time.time(), payload)
     return payload
 
@@ -855,13 +902,27 @@ def _analyzer(name: str):
     return next((a for a in registry.all_analyzers() if a.name == name), None)
 
 
-async def _run_safe(analyzer, entity) -> "AnalyzerResult | None":
+# A slow source must not hang the whole footprint request forever. Individual
+# analyzers keep their own timeouts; this is a final backstop, and failures are
+# returned to the caller instead of being swallowed as "no data".
+_FOOTPRINT_TIMEOUT = 30.0
+
+
+async def _run_safe(analyzer, entity, name: str) -> tuple["AnalyzerResult | None", str | None]:
+    """Run one analyzer, returning (result, error). Never raises."""
     if analyzer is None:
-        return None
+        return None, f"{name}: analyzer unavailable"
     try:
-        return await analyzer.run(entity)
-    except Exception:
-        return None
+        return await asyncio.wait_for(analyzer.run(entity), timeout=_FOOTPRINT_TIMEOUT), None
+    except asyncio.TimeoutError:
+        return None, f"{name}: timed out after {_FOOTPRINT_TIMEOUT:g}s"
+    except Exception as e:
+        return None, f"{name}: failed ({type(e).__name__}: {str(e)[:160]})"
+
+
+def _add_error(errors: list[str], message: str) -> None:
+    if message not in errors:
+        errors.append(message)
 
 
 async def _resolve_ips(host: str) -> list[str]:
@@ -901,8 +962,15 @@ _PORT_RISK: dict[int, tuple[str, str, str]] = {
 _RISK_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
-def _footprint_risk(services: list[dict]) -> dict:
-    """Score the mapped services into a prioritised attack-surface assessment."""
+def _footprint_risk(services: list[dict], errors: list[str] | None = None,
+                    mapped: int | None = None) -> dict:
+    """Score the mapped services into a prioritised attack-surface assessment.
+
+    An empty result is only "clean" when the checks actually completed. If a
+    source failed — or no host could be resolved for port/CVE checks — say so
+    rather than presenting absence of data as absence of risk.
+    """
+    errors = errors or []
     findings: list[dict] = []
     for s in services:
         host = (s.get("hosts") or [None])[0] or s.get("ip")
@@ -920,16 +988,21 @@ def _footprint_risk(services: list[dict]) -> dict:
     counts = {"high": 0, "medium": 0, "low": 0}
     for f in findings:
         counts[f["level"]] = counts.get(f["level"], 0) + 1
+    partial = " (partial — some checks failed)" if errors and findings else ""
     if counts["high"]:
         posture, headline = "exposed", f"{counts['high']} high-risk exposure(s) — address these first."
     elif counts["medium"]:
         posture, headline = "review", f"{counts['medium']} medium-risk service(s) to review."
     elif findings:
         posture, headline = "ok", "Only low-risk secondary services are exposed."
+    elif errors:
+        posture, headline = "incomplete", "Can't judge exposure — some checks failed; see the notes below."
+    elif mapped is not None and mapped == 0:
+        posture, headline = "incomplete", "No host resolved to an IP — ports and CVEs could not be checked."
     else:
         posture, headline = "clean", "No notably risky ports or CVEs on the hosts I could resolve."
-    return {"posture": posture, "headline": headline, "counts": counts,
-            "findings": findings[:40]}
+    return {"posture": posture, "headline": headline + partial, "counts": counts,
+            "findings": findings[:40], "partial": bool(errors and findings)}
 
 
 async def _reverse_geocode(lat, lon) -> str | None:
@@ -956,6 +1029,7 @@ async def footprint(target: str = Query(..., min_length=1, max_length=253)) -> d
     is_domain = bool(_DOMAIN_RE.match(t))
     domain = t if is_domain else None
     out: dict = {
+        "ok": True,
         "target": target,
         "domain": domain,
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -964,25 +1038,43 @@ async def footprint(target: str = Query(..., min_length=1, max_length=253)) -> d
         "tech": {},
         "services": [],
         "jobs": None,
+        "errors": [],
     }
+    succeeded = 0
+
+    def _record(result, err) -> None:
+        nonlocal succeeded
+        if err:
+            _add_error(out["errors"], err)
+        else:
+            succeeded += 1
+
+    def _finish() -> dict:
+        out["ok"] = succeeded > 0
+        if not out["ok"]:
+            _add_error(out["errors"], "No source returned data for this target.")
+        return out
 
     # Job postings run for either a company name or a domain (slug-derived).
     seed_type = EntityType.DOMAIN if is_domain else EntityType.COMPANY
-    jr = await _run_safe(_analyzer("jobs"), Entity.make(seed_type, t))
+    jr, jerr = await _run_safe(_analyzer("jobs"), Entity.make(seed_type, t), "jobs")
+    _record(jr, jerr)
     if jr and jr.findings:
         out["jobs"] = jr.findings[0].data
 
     # Infrastructure mapping needs a domain.
     if not domain:
         out["note"] = "Give a domain (e.g. acme.com) to map subdomains and services."
-        return out
+        return _finish()
 
     dent = Entity.make(EntityType.DOMAIN, domain)
-    crt, dnsr, tech = await asyncio.gather(
-        _run_safe(_analyzer("crtsh"), dent),
-        _run_safe(_analyzer("dns"), dent),
-        _run_safe(_analyzer("http_probe"), dent),
+    (crt, crterr), (dnsr, dnserr), (tech, techerr) = await asyncio.gather(
+        _run_safe(_analyzer("crtsh"), dent, "crtsh"),
+        _run_safe(_analyzer("dns"), dent, "dns"),
+        _run_safe(_analyzer("http_probe"), dent, "http_probe"),
     )
+    for result, err in ((crt, crterr), (dnsr, dnserr), (tech, techerr)):
+        _record(result, err)
     subs: list[str] = []
     if crt and crt.findings:
         subs = crt.findings[0].data.get("subdomains", [])
@@ -1008,14 +1100,20 @@ async def footprint(target: str = Query(..., min_length=1, max_length=253)) -> d
                 if ip not in uniq:
                     uniq.append(ip)
     uniq = uniq[:15]
+    out["checked_ips"] = len(uniq)
+    if not uniq:
+        _add_error(out["errors"],
+                   "resolve: no apex/subdomain IP resolved — ports and CVEs could not be checked")
 
     geo, sho = _analyzer("ip_geo"), _analyzer("shodan_internetdb")
 
     async def _ip_info(ip: str) -> dict:
-        g, s = await asyncio.gather(
-            _run_safe(geo, Entity.make(EntityType.IP, ip)),
-            _run_safe(sho, Entity.make(EntityType.IP, ip)),
+        (g, gerr), (s, serr) = await asyncio.gather(
+            _run_safe(geo, Entity.make(EntityType.IP, ip), f"ip_geo ({ip})"),
+            _run_safe(sho, Entity.make(EntityType.IP, ip), f"shodan_internetdb ({ip})"),
         )
+        _record(g, gerr)
+        _record(s, serr)
         gd = g.findings[0].data if g and g.findings else {}
         sd = s.findings[0].data if s and s.findings else {}
         return {
@@ -1028,8 +1126,8 @@ async def footprint(target: str = Query(..., min_length=1, max_length=253)) -> d
         }
 
     out["services"] = await asyncio.gather(*[_ip_info(ip) for ip in uniq])
-    out["risk"] = _footprint_risk(out["services"])
-    return out
+    out["risk"] = _footprint_risk(out["services"], out["errors"], mapped=len(uniq))
+    return _finish()
 
 
 # --------------------------------------------------------------------------
@@ -1046,6 +1144,32 @@ class ImageRequest(BaseModel):
 
 
 _IMG_MAX_BYTES = 25 * 1024 * 1024
+_CORE_IMAGE_FORMATS = {"JPEG", "PNG", "GIF", "WEBP", "BMP", "TIFF"}
+
+
+def _decode_image_data(value: str) -> tuple[bytes | None, str | None]:
+    """Strictly decode base64 (optionally an image/* data: URL)."""
+    data = (value or "").strip()
+    if data.lower().startswith("data:"):
+        header, sep, payload = data.partition(",")
+        if not sep:
+            return None, "invalid data URL (missing ',')"
+        parts = [p.strip() for p in header[5:].split(";")]
+        mime = parts[0].lower()
+        if "/" not in mime:
+            return None, "invalid data URL MIME type"
+        if not mime.startswith("image/"):
+            return None, f"data URL must be an image (got {mime})"
+        if "base64" not in [p.lower() for p in parts[1:]]:
+            return None, "data URL must be base64 encoded"
+        data = payload.strip()
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        return None, "invalid base64 image data"
+    if not raw:
+        return None, "empty image data"
+    return raw, None
 
 
 @app.post("/api/image")
@@ -1067,49 +1191,60 @@ async def image_intel(req: ImageRequest) -> dict:
             return {"ok": False, "error": f"could not fetch URL: {e}"}
         raw = resp.content
         ctype = resp.headers.get("content-type", "").lower()
-        looks_html = "html" in ctype or raw.lstrip()[:15].lower().startswith((b"<!doctype", b"<html"))
-        if looks_html and "image" not in ctype:
-            # It's a web page — find its main image (og:image) and analyse that.
-            # Use the original page URL as the base: the guarded response was
-            # fetched from a pinned IP, so resp.url is not a usable base.
-            img_url = imageintel.og_image(raw.decode("utf-8", "ignore"), base_url=req.url)
-            if not img_url:
-                return {
-                    "ok": False,
-                    "error": "That's a web page, not an image, and I couldn't find a main image (og:image) on it. "
-                    "Open the image directly — right-click it → Copy image address — and paste that URL.",
-                    "page": True,
-                }
-            try:
-                resp2 = await netguard.safe_get(img_url, timeout=15, max_bytes=_IMG_MAX_BYTES)
-                resp2.raise_for_status()
-            except netguard.BlockedTargetError as e:
-                return {"ok": False, "error": f"blocked target (page image): {e}"}
-            except Exception as e:
-                return {"ok": False, "error": f"could not fetch the page's image: {e}"}
-            raw = resp2.content
-            resolved_url = img_url
-            resolved_from_page = True
+        # Trust the bytes, not the header: an "image/png" response can still be
+        # an HTML error page, and a mislabelled JPEG is still a JPEG.
+        if imageintel.detect_format(raw) is None:
+            looks_html = "html" in ctype or raw.lstrip()[:15].lower().startswith((b"<!doctype", b"<html"))
+            if looks_html:
+                # It's a web page — find its main image (og:image) and analyse that.
+                # Use the original page URL as the base: the guarded response was
+                # fetched from a pinned IP, so resp.url is not a usable base.
+                img_url = imageintel.og_image(raw.decode("utf-8", "ignore"), base_url=req.url)
+                if not img_url:
+                    return {
+                        "ok": False,
+                        "error": "That's a web page, not an image, and I couldn't find a main image (og:image) on it. "
+                        "Open the image directly — right-click it → Copy image address — and paste that URL.",
+                        "page": True,
+                    }
+                try:
+                    resp2 = await netguard.safe_get(img_url, timeout=15, max_bytes=_IMG_MAX_BYTES)
+                    resp2.raise_for_status()
+                except netguard.BlockedTargetError as e:
+                    return {"ok": False, "error": f"blocked target (page image): {e}"}
+                except Exception as e:
+                    return {"ok": False, "error": f"could not fetch the page's image: {e}"}
+                raw = resp2.content
+                if imageintel.detect_format(raw) is None:
+                    return {"ok": False, "error": "The page's main image wasn't in a recognised image format."}
+                resolved_url = img_url
+                resolved_from_page = True
+            else:
+                return {"ok": False, "error": "unrecognised image format — expected JPEG, PNG, GIF, WEBP, BMP or TIFF bytes"}
     elif req.data:
-        d = req.data.strip()
-        if d.startswith("data:") and "," in d:
-            d = d.split(",", 1)[1]
-        try:
-            raw = base64.b64decode(d)
-        except Exception:
-            return {"ok": False, "error": "invalid base64 image data"}
+        raw, err = _decode_image_data(req.data)
+        if err:
+            return {"ok": False, "error": err}
 
     if not raw:
         return {"ok": False, "error": "provide an image 'url' or base64 'data'"}
     if len(raw) > _IMG_MAX_BYTES:
         return {"ok": False, "error": "image too large (>25MB)"}
+    detected = imageintel.detect_format(raw)
+    if not detected:
+        return {"ok": False, "error": "unrecognised image format — expected JPEG, PNG, GIF, WEBP, BMP or TIFF bytes"}
 
     try:
         meta = await asyncio.to_thread(imageintel.extract_metadata, raw)
     except Exception as e:
         return {"ok": False, "error": f"could not read image: {e}"}
 
+    decoded = str(meta.get("format") or "").upper()
+    if (detected in _CORE_IMAGE_FORMATS and decoded in _CORE_IMAGE_FORMATS
+            and detected != decoded):
+        return {"ok": False, "error": f"image bytes look like {detected} but decoded as {decoded} — refusing an ambiguous file"}
     meta["ok"] = True
+    meta["detected_format"] = detected
     meta["bytes"] = len(raw)
     meta["assessment"] = imageintel.assess(meta)
     meta["reverse_search"] = imageintel.reverse_search_links(
@@ -1117,8 +1252,11 @@ async def image_intel(req: ImageRequest) -> dict:
     )
     if resolved_from_page:
         meta["resolved_image"] = resolved_url
-    if meta.get("gps"):
-        g = meta["gps"]
+    g = meta.get("gps")
+    if g and g.get("exact"):
+        # Only signed, fully referenced coordinates get a map or a place name.
+        # Guessing N/E from an unsigned EXIF pair would put the pin in the wrong
+        # hemisphere with no warning — worse than saying "incomplete".
         g["maps"] = imageintel.map_links(g["lat"], g["lon"])
         place = await _reverse_geocode(g["lat"], g["lon"])
         if place:

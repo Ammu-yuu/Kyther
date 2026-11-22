@@ -56,15 +56,56 @@ _WANT = {
 }
 
 
-def _to_degrees(value, ref: str) -> float | None:
+# Sniff the real format from magic bytes. HTTP Content-Type is user/control
+# supplied and often wrong (or an HTML error page with an image/* header).
+_MAGIC_FORMATS = (
+    (b"\xff\xd8\xff", "JPEG"),
+    (b"\x89PNG\r\n\x1a\n", "PNG"),
+    (b"GIF87a", "GIF"),
+    (b"GIF89a", "GIF"),
+    (b"BM", "BMP"),
+    (b"II*\x00", "TIFF"),
+    (b"MM\x00*", "TIFF"),
+)
+
+
+def detect_format(data: bytes) -> str | None:
+    """Identify an image by its leading bytes, without trusting HTTP headers."""
+    head = bytes(data[:16])
+    for magic, name in _MAGIC_FORMATS:
+        if head.startswith(magic):
+            return name
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "WEBP"
+    return None
+
+
+def _dms_to_dec(value) -> float | None:
     try:
         d, m, s = (float(x) for x in value)
     except Exception:
         return None
-    dec = d + m / 60.0 + s / 3600.0
-    if str(ref).upper() in ("S", "W"):
-        dec = -dec
-    return round(dec, 6)
+    return d + m / 60.0 + s / 3600.0
+
+
+def _to_degrees(value, ref: str | None, valid: tuple[str, ...] = ("N", "S", "E", "W")) -> float | None:
+    """DMS + hemisphere ref -> signed decimal degrees.
+
+    A missing or nonsensical ref returns None. Never assume N/E: an unsigned
+    pair placed on a map is a false location presented as an exact one.
+    """
+    dec = _dms_to_dec(value)
+    if dec is None:
+        return None
+    r = str(ref or "").strip().upper()
+    if r not in valid:
+        return None
+    return round(-dec if r in ("S", "W") else dec, 6)
+
+
+def _exif_ref(value) -> str | None:
+    r = str(value or "").strip().upper()
+    return r or None
 
 
 def extract_metadata(data: bytes) -> dict:
@@ -92,18 +133,35 @@ def extract_metadata(data: bytes) -> dict:
     except Exception:
         pass
 
-    # GPS sub-IFD -> decimal lat/lon.
+    # GPS sub-IFD -> decimal lat/lon. Both hemisphere refs must be present and
+    # valid; otherwise keep the unsigned magnitudes but flag the record as
+    # incomplete so no map pin or place name is invented from a guess.
     try:
         gps = exif.get_ifd(0x8825)
         if gps:
             g = {ExifTags.GPSTAGS.get(k, k): v for k, v in gps.items()}
-            if "GPSLatitude" in g and "GPSLongitude" in g:
-                lat = _to_degrees(g["GPSLatitude"], g.get("GPSLatitudeRef", "N"))
-                lon = _to_degrees(g["GPSLongitude"], g.get("GPSLongitudeRef", "E"))
-                if lat is not None and lon is not None:
-                    out["gps"] = {"lat": lat, "lon": lon}
+            lat_mag = _dms_to_dec(g.get("GPSLatitude"))
+            lon_mag = _dms_to_dec(g.get("GPSLongitude"))
+            if lat_mag is not None and lon_mag is not None:
+                lat_ref = _exif_ref(g.get("GPSLatitudeRef"))
+                lon_ref = _exif_ref(g.get("GPSLongitudeRef"))
+                lat = _to_degrees(g.get("GPSLatitude"), lat_ref, ("N", "S"))
+                lon = _to_degrees(g.get("GPSLongitude"), lon_ref, ("E", "W"))
+                gp: dict = {
+                    "lat_magnitude": round(lat_mag, 6),
+                    "lon_magnitude": round(lon_mag, 6),
+                    "lat_ref": lat_ref,
+                    "lon_ref": lon_ref,
+                    "exact": lat is not None and lon is not None,
+                }
+                if gp["exact"]:
+                    gp["lat"], gp["lon"] = lat, lon
                     if "GPSDateStamp" in g:
-                        out["gps"]["timestamp"] = str(g["GPSDateStamp"])
+                        gp["timestamp"] = str(g["GPSDateStamp"])
+                else:
+                    gp["note"] = ("EXIF coordinates lack valid N/S or E/W references — shown as unsigned "
+                                  "magnitudes; no map or place lookup was attempted.")
+                out["gps"] = gp
     except Exception:
         pass
     return out
@@ -174,8 +232,12 @@ def assess(meta: dict) -> dict:
     editor = _editor(software)
 
     if gps:
-        sig("strong", "GPS coordinates are embedded — the file claims an exact "
-                      "capture location. Verify it fits the story (place below).")
+        if gps.get("exact") is False:
+            sig("warn", "EXIF has coordinates but no valid N/S or E/W references — "
+                        "the location cannot be pinned without guessing a hemisphere.")
+        else:
+            sig("strong", "GPS coordinates are embedded — the file contains a "
+                          "claimed capture location. Verify it fits the story (place below).")
     if editor:
         sig("warn", f"Last saved by {editor} — the image has been through a photo "
                     "editor, so pixels and metadata may be altered.")
