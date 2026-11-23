@@ -315,7 +315,7 @@ function fpPivots(links){
     `<div class="fp-pivot-group"><div class="plabel" style="margin:0 0 6px">${esc(group)}</div><div class="fp-launchers">`+
     items.map(l=>`<a class="launch-btn" href="${safeHref(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")+`</div></div>`).join("");
   return panelSec("Manual lookups — open these yourself (not fetched by Kyther)",
-    `<div class="fp-manual-note">These are search links, not findings. Kyther has not opened them and has <b>no LinkedIn, Wikidata or GitHub data</b> from them. Anything above with a “Verified match” badge was actually fetched and cross-checked.</div>${body}`);
+    `<div class="fp-manual-note">These are search links, not findings. Kyther has not opened them and has <b>no LinkedIn, Wikidata or GitHub data</b> from them. Anything above with a “Verified match” badge was actually fetched and cross-checked. Certificate, web-archive and document checks are already part of the scan — see <b>Source checks</b>.</div>${body}`);
 }
 function renderFootprint(d){
   const el=$("#fpResult"), parts=[];

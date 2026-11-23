@@ -479,27 +479,20 @@ def pivot_links(terms: list[str], domains: list[str], name: str = "") -> list[di
 
     # Every label says "Search" — these are launchers for the user to open, not
     # data Kyther fetched. LinkedIn in particular has no keyless public API.
-    add("Google", f"https://www.google.com/search?q={q}", "Search engines (manual)")
-    add("Bing", f"https://www.bing.com/search?q={q}", "Search engines (manual)")
-    add("DuckDuckGo", f"https://duckduckgo.com/?q={q}", "Search engines (manual)")
-    add("News", f"https://www.google.com/search?q={q}&tbm=nws", "Search engines (manual)")
+    # We deliberately do NOT add crt.sh / Wayback / PDF links: Kyther already
+    # checks those itself and reports the outcome in Source checks, so a manual
+    # link would just repeat work and confuse people with jargon.
+    add("Google", f"https://www.google.com/search?q={q}", "Search engines")
+    add("Bing", f"https://www.bing.com/search?q={q}", "Search engines")
+    add("DuckDuckGo", f"https://duckduckgo.com/?q={q}", "Search engines")
+    add("News", f"https://www.google.com/search?q={q}&tbm=nws", "Search engines")
     add("Search LinkedIn", f"https://www.linkedin.com/company/?keywords={plain}",
-        "Profiles (manual)")
+        "Profiles")
     add("Search GitHub", f"https://github.com/search?q={plain}&type=repositories",
-        "Code (manual)")
+        "Code")
     add("Search SEC EDGAR",
         f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company={plain}"
-        "&owner=include&count=40", "Filings (manual)")
+        "&owner=include&count=40", "Filings")
     add("Search Wikidata", f"https://www.wikidata.org/w/index.php?search={plain}",
-        "Identity (manual)")
-
-    for domain in (domains or [])[:3]:
-        safe_domain = quote(domain, safe=".")
-        add(f"crt.sh · {domain}", f"https://crt.sh/?q=%.{safe_domain}",
-            "Infrastructure (manual)")
-        add(f"Wayback · {domain}", f"https://web.archive.org/web/*/{safe_domain}/*",
-            "Infrastructure (manual)")
-        add(f"Google docs · {domain}",
-            f"https://www.google.com/search?q={quote(f'site:{domain} filetype:pdf', safe='')}",
-            "Documents (manual)")
-    return links[:18]
+        "Identity")
+    return links

@@ -58,11 +58,13 @@ class CompanyHelperTests(unittest.TestCase):
         labels = [link["label"] for link in links]
         for label in ("Search LinkedIn", "Search GitHub", "Search Wikidata"):
             self.assertIn(label, labels)
+        for jargon in ("crt.sh", "Wayback", "Google docs"):
+            self.assertFalse(any(jargon in label for label in labels))
         for link in links:
             self.assertTrue(link["url"].startswith("https://"))
             self.assertNotIn("javascript", link["url"])
             self.assertTrue(link.get("manual"))
-            self.assertIn("manual", link["group"])
+            self.assertNotIn("manual", link["group"])
 
     def test_sec_hits_must_name_the_company(self):
         self.assertTrue(_name_matches("Acme Corp Inc.", "Acme Corp"))
