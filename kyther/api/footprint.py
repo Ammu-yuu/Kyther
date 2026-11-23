@@ -1,22 +1,29 @@
-"""Company Footprint: subdomains, DNS, exposed services and jobs."""
+"""Company Footprint: identity, registration, attack surface and hiring signals."""
 from __future__ import annotations
 
 import asyncio
 import time
+from typing import Optional
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 
+from ..company import (clean_terms, github_org, pivot_links, search_terms,
+                       slug_candidates, wayback_summary, wikidata_facts,
+                       wikipedia_profile)
 from ..core import registry
 from ..core.entities import AnalyzerResult, Entity, EntityType, _DOMAIN_RE
+from .models import FootprintRequest
 from ..net import get_client
 
 router = APIRouter()
 
 
 # --------------------------------------------------------------------------
-# Company Footprint — aggregates a company's external surface (subdomains, DNS,
-# tech, exposed services) plus its public hiring signals (job postings) into
-# one company-centric view. All keyless, built from existing analyzers + jobs.
+# Company Footprint — aggregates public company identity (Wikipedia/Wikidata,
+# SEC, GitHub), domain registration, subdomains, DNS, exposed services and
+# hiring signals into one company-centric view. All keyless; the richer
+# identity/archive sources run when ``deep`` is requested by the UI.
 # --------------------------------------------------------------------------
 def _analyzer(name: str):
     return next((a for a in registry.all_analyzers() if a.name == name), None)
@@ -53,6 +60,28 @@ async def _resolve_ips(host: str) -> list[str]:
     except Exception:
         return []
     return sorted({i[4][0] for i in infos if ":" not in i[4][0]})
+
+
+def _domain_from(value: str) -> str | None:
+    """Accept a bare domain or a URL and return the validated host."""
+    text = str(value or "").strip().lower().rstrip("/")
+    if not text:
+        return None
+    if "://" in text:
+        text = urlsplit(text).netloc.lower()
+    text = text.split("/", 1)[0].split("?", 1)[0]
+    return text if _DOMAIN_RE.match(text) else None
+
+
+def _unique(values) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        value = str(value or "").strip()
+        if value and value.lower() not in seen:
+            seen.add(value.lower())
+            out.append(value)
+    return out
 
 
 # Attack-surface risk catalog: internet-exposed ports that warrant attention,
@@ -141,23 +170,47 @@ async def _reverse_geocode(lat, lon) -> str | None:
     return None
 
 
-@router.get("/api/footprint")
-async def footprint(target: str = Query(..., min_length=1, max_length=253)) -> dict:
-    """Map a company's external footprint: subdomains, DNS, services, job posts."""
+async def _build_footprint(target: str = "", name: str = "", domains=None,
+                           aliases=None, country: str = "", deep: bool = False) -> dict:
+    """Shared implementation for the legacy GET and structured POST endpoints."""
     registry.load_builtins()
-    t = target.strip().lower()
-    is_domain = bool(_DOMAIN_RE.match(t))
-    domain = t if is_domain else None
+    target = str(target or "").strip()
+    domains = _unique([_domain_from(d) for d in (domains or [])])[:5]
+    target_domain = _domain_from(target)
+    if target_domain and target_domain not in domains:
+        domains.insert(0, target_domain)
+
+    company_name = str(name or "").strip()
+    if not company_name and not target_domain:
+        company_name = target[:200]
+    if not company_name and domains:
+        company_name = domains[0].split(".")[0].replace("-", " ").title()
+    alias_terms = clean_terms(aliases)
+    display_aliases = _unique([company_name, *alias_terms])
+    terms = search_terms(company_name, alias_terms, country)
+
     out: dict = {
         "ok": True,
-        "target": target,
-        "domain": domain,
+        "target": target or company_name or (domains[0] if domains else ""),
+        "name": company_name,
+        "domain": domains[0] if domains else None,
+        "domains": domains,
+        "aliases": display_aliases,
+        "country": country.strip() or None,
+        "deep": bool(deep),
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "subdomains": [],
         "dns": {},
         "tech": {},
         "services": [],
         "jobs": None,
+        "hiring": None,
+        "registration": {},
+        "profile": None,
+        "filings": None,
+        "github": None,
+        "archive": None,
+        "pivots": [],
         "errors": [],
     }
     succeeded = 0
@@ -169,25 +222,88 @@ async def footprint(target: str = Query(..., min_length=1, max_length=253)) -> d
         else:
             succeeded += 1
 
+    def _record_data(label: str, data, err) -> None:
+        nonlocal succeeded
+        if err:
+            _add_error(out["errors"], f"{label}: {err}")
+        elif data is not None:
+            succeeded += 1
+
     def _finish() -> dict:
         out["ok"] = succeeded > 0
         if not out["ok"]:
             _add_error(out["errors"], "No source returned data for this target.")
         return out
 
-    # Job postings run for either a company name or a domain (slug-derived).
-    seed_type = EntityType.DOMAIN if is_domain else EntityType.COMPANY
-    jr, jerr = await _run_safe(_analyzer("jobs"), Entity.make(seed_type, t), "jobs")
-    _record(jr, jerr)
-    if jr and jr.findings:
-        out["jobs"] = jr.findings[0].data
-
-    # Infrastructure mapping needs a domain.
-    if not domain:
-        out["note"] = "Give a domain (e.g. acme.com) to map subdomains and services."
+    if not company_name and not domains:
+        out["errors"].append("Enter a company name or domain to map.")
         return _finish()
 
+    out["pivots"] = pivot_links(terms, domains, company_name)
+
+    # Job postings work for a company name or a domain-derived ATS slug.
+    seed = Entity.make(EntityType.DOMAIN if domains else EntityType.COMPANY,
+                       domains[0] if domains else company_name)
+    jr, jerr = await _run_safe(_analyzer("jobs"), seed, "jobs")
+    _record(jr, jerr)
+    if jr and jr.findings:
+        job_data = jr.findings[0].data
+        out["jobs"] = job_data
+        out["hiring"] = {
+            "source": job_data.get("source"),
+            "slug": job_data.get("slug"),
+            "count": job_data.get("count"),
+            "locations": job_data.get("locations", []),
+            "departments": job_data.get("departments", []),
+            "skills": job_data.get("skills", []),
+            "postings": (job_data.get("postings") or [])[:20],
+        }
+
+    # Public filings confirm the legal entity, CIK and ticker for US companies.
+    for term in terms[:3]:
+        sr, serr = await _run_safe(_analyzer("sec_edgar"),
+                                   Entity.make(EntityType.COMPANY, term),
+                                   f"sec_edgar ({term})")
+        _record(sr, serr)
+        if sr and sr.findings and not out["filings"]:
+            out["filings"] = sr.findings[0].data
+
+    # Richer identity sources are opt-in because they add several HTTP calls.
+    if deep:
+        profile, perr = await wikipedia_profile(terms, country, domains, company_name)
+        _record_data("wikipedia", profile, perr)
+        out["profile"] = profile
+        if profile and profile.get("wikidata_id"):
+            facts, ferr = await wikidata_facts(profile["wikidata_id"])
+            _record_data("wikidata", facts, ferr)
+            if facts:
+                out["profile"]["facts"] = facts.get("facts", {})
+                out["profile"]["wikidata_url"] = facts.get("url")
+
+        org, oerr = await github_org(slug_candidates(company_name, domains))
+        _record_data("github", org, oerr)
+        out["github"] = org
+
+        if domains:
+            archive, aerr = await wayback_summary(domains)
+            _record_data("wayback", archive, aerr)
+            out["archive"] = archive
+
+    if not domains:
+        out["note"] = "Add a domain (e.g. acme.com) to map subdomains, registration and services."
+        return _finish()
+
+    domain = domains[0]
     dent = Entity.make(EntityType.DOMAIN, domain)
+
+    # Registration data: registrar, dates, status and published contacts.
+    for d in domains[:3]:
+        rr, rerr = await _run_safe(_analyzer("rdap"),
+                                   Entity.make(EntityType.DOMAIN, d), f"rdap ({d})")
+        _record(rr, rerr)
+        if rr and rr.findings:
+            out["registration"][d] = rr.findings[0].data
+
     (crt, crterr), (dnsr, dnserr), (tech, techerr) = await asyncio.gather(
         _run_safe(_analyzer("crtsh"), dent, "crtsh"),
         _run_safe(_analyzer("dns"), dent, "dns"),
@@ -248,3 +364,24 @@ async def footprint(target: str = Query(..., min_length=1, max_length=253)) -> d
     out["services"] = await asyncio.gather(*[_ip_info(ip) for ip in uniq])
     out["risk"] = _footprint_risk(out["services"], out["errors"], mapped=len(uniq))
     return _finish()
+
+
+@router.get("/api/footprint")
+async def footprint(target: str = "", name: str = "",
+                    domains: Optional[list[str]] = None,
+                    aliases: Optional[list[str]] = None,
+                    country: str = "", deep: bool = False) -> dict:
+    """Map a company's footprint from the legacy single-target query string.
+
+    Plain defaults keep direct calls (used by the CLI/tests) working while
+    FastAPI still exposes each parameter as an optional query parameter.
+    """
+    return await _build_footprint(target, name, domains, aliases, country, deep)
+
+
+@router.post("/api/footprint")
+async def footprint_post(body: FootprintRequest) -> dict:
+    """Structured company intake used by the expanded footprint UI."""
+    return await _build_footprint(
+        body.target, body.name, body.domains, body.aliases, body.country, body.deep
+    )

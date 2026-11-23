@@ -5,6 +5,26 @@
   .sun-form input{flex:0 1 150px;}
   .fp-search button,.sun-form button{background:#211d29;border:1px solid var(--border);border-radius:6px;color:var(--primary);font-family:var(--mono);font-size:12.5px;padding:0 18px;cursor:pointer;white-space:nowrap;}
   .fp-search button:hover,.sun-form button:hover{border-color:#3a3444;}
+  /* Structured company intake */
+  .fp-form{padding:14px 16px;}
+  .fp-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:11px;}
+  .fp-row label{display:flex;flex-direction:column;gap:6px;color:var(--dim);font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;}
+  .fp-row input{background:#0d0b11;border:1px solid var(--border);border-radius:6px;padding:10px 12px;color:var(--primary);font-family:var(--mono);font-size:13px;outline:0;caret-color:var(--pink);text-transform:none;letter-spacing:0;}
+  .fp-row input:focus{border-color:#3a3444;}
+  .fp-actions{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px;}
+  .fp-check{display:flex;align-items:center;gap:8px;color:var(--primary);font-family:var(--mono);font-size:12.5px;cursor:pointer;}
+  .fp-check input{accent-color:#bfa4e4;}
+  .fp-actions button{background:#211d29;border:1px solid var(--border);border-radius:6px;color:var(--primary);font-family:var(--mono);font-size:12.5px;padding:9px 20px;cursor:pointer;white-space:nowrap;}
+  .fp-actions button:hover{border-color:#3a3444;}
+  @media(max-width:680px){.fp-row{grid-template-columns:1fr;}}
+  .fp-lede{color:var(--output,#9d93a8);font-size:13px;line-height:1.65;}
+  .fp-src{margin-top:7px;font-size:11.5px;color:var(--dim);}
+  .fp-facts{margin-top:10px;}
+  .fp-reg{border-top:1px solid var(--border);padding-top:10px;margin-top:10px;}
+  .fp-reg:first-child{border-top:0;padding-top:0;margin-top:0;}
+  .fp-reg-h{color:var(--primary);font-size:13px;margin-bottom:7px;}
+  .fp-pivot-group{margin-bottom:12px;}
+  .fp-launchers{display:flex;flex-wrap:wrap;gap:7px;}
   .img-upload{display:inline-flex;align-items:center;padding:0 16px;border:1px dashed var(--border);border-radius:6px;color:var(--dim);font-family:var(--mono);font-size:12px;cursor:pointer;}
   .img-upload:hover{color:var(--primary);border-color:#3a3444;}
   .fp-summary{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 4px;}

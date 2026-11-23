@@ -67,7 +67,7 @@ from .builders import (  # noqa: E402
 from .feeds import _NEWS_CACHE, news, reddit_lookup  # noqa: E402
 from .footprint import (  # noqa: E402
     _FOOTPRINT_TIMEOUT, _add_error, _analyzer, _footprint_risk, _resolve_ips,
-    _run_safe, footprint,
+    _run_safe, footprint, footprint_post,
 )
 from .image import _IMG_MAX_BYTES, _decode_image_data, image_intel  # noqa: E402
 from .models import ImageRequest, MAX_DEPTH, ScanRequest  # noqa: E402
@@ -81,7 +81,8 @@ from .threats import _THREATS_CACHE, threats  # noqa: E402
 __all__ = [
     "app", "ScanRequest", "ImageRequest", "MAX_DEPTH",
     "news", "reddit_lookup", "threats", "pulse_trending", "pulse_topic",
-    "list_analyzers", "run_scan", "footprint", "image_intel", "make_report",
+    "list_analyzers", "run_scan", "footprint", "footprint_post", "image_intel",
+    "make_report",
     "_parse_rss", "_rss_articles", "_pulse_read", "_footprint_risk",
     "_decode_image_data", "_perform_scan", "get_client", "close_client",
     "sanitize_public_url", "allowed_origins", "KytherMiddleware",

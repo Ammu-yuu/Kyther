@@ -186,16 +186,116 @@ function renderReddit(d){
 $("#rdGo").addEventListener("click",e=>runReddit($("#rdInput").value,e.currentTarget));
 $("#rdInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runReddit($("#rdInput").value,e.currentTarget); });
 // ---------- Company Footprint ----------
+function _fpList(value){
+  return String(value||"").split(/[,;\n]+/).map(s=>s.trim()).filter(Boolean);
+}
+function footprintPayload(q){
+  const name=(q ?? $("#fpInput").value).trim();
+  const domains=_fpList($("#fpDomains").value);
+  return {
+    target: name || domains[0] || "",
+    name,
+    domains,
+    aliases: _fpList($("#fpAliases").value),
+    country: $("#fpCountry").value.trim(),
+    deep: !!$("#fpDeep").checked,
+  };
+}
 async function runFootprint(q,btn=$("#fpGo")){
-  q=(q||"").trim(); if(!q) return;
+  const payload=footprintPayload(q);
+  if(!payload.name && !payload.domains.length){
+    $("#fpResult").innerHTML='<div class="rd-empty">add a company name or domain above.</div>';
+    $("#fpInput").focus(); return;
+  }
   const el=$("#fpResult"), done=setButtonBusy(btn);
-  el.innerHTML='<div class="rd-empty">mapping footprint — subdomains, services, job posts… (can take ~20s)</div>';
+  el.innerHTML='<div class="rd-empty">mapping identity, registration, subdomains, services and hiring signals… (deep scans can take ~30s)</div>';
   try{
-    renderFootprint(await requestJson("footprint",API+"/api/footprint?target="+encodeURIComponent(q)));
+    renderFootprint(await requestJson("footprint",API+"/api/footprint",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload),
+    }));
   }catch(e){
     if(isAbort(e)) return;
     el.innerHTML='<div class="rd-empty">footprint failed: '+esc(e.message)+'</div>';
   }finally{ done(); }
+}
+function fpProfile(p){
+  if(!p) return "";
+  const facts=Object.entries(p.facts||{}).map(([k,v])=>
+    `<div class="ld-kv"><span class="kv">${esc(k)}</span><span class="val">${esc((v||[]).slice(0,4).join(", "))}</span></div>`).join("");
+  const links=[p.url?`<a class="match" href="${safeHref(p.url)}" target="_blank" rel="noopener noreferrer">Wikipedia ↗</a>`:"",
+               p.wikidata_url?`<a class="match" href="${safeHref(p.wikidata_url)}" target="_blank" rel="noopener noreferrer">Wikidata ↗</a>`:""].filter(Boolean).join(" · ");
+  return panelSec("Company profile",`<div class="fp-lede">${esc(p.summary||"")}</div>`+
+    `<div class="fp-src">${esc(p.title||p.query||"")} ${links}</div>`+
+    (facts?`<div class="fp-facts">${facts}</div>`:""));
+}
+function fpRegistration(reg){
+  const names=Object.keys(reg||{});
+  if(!names.length) return "";
+  const body=names.map(d=>{
+    const r=reg[d]||{}, events=Object.entries(r.events||{}).map(([k,v])=>
+      `<div class="ld-kv"><span class="kv">${esc(k)}</span><span class="val">${esc(v)}</span></div>`).join("");
+    const status=(r.status||[]).slice(0,8).map(s=>`<span class="fp-chip">${esc(s)}</span>`).join("");
+    const contacts=(r.contacts||[]).slice(0,6).map(c=>
+      `<div class="ld-kv"><span class="kv">${esc((c.roles||[]).join(", ")||"contact")}</span><span class="val">${esc(c.name||"")}</span></div>`).join("");
+    return `<div class="fp-reg"><div class="fp-reg-h">${esc(d)} <span class="info">${esc(r.handle||"")}</span></div>`+
+      (status?`<div class="fp-chips">${status}</div>`:"")+events+contacts+`</div>`;
+  }).join("");
+  return panelSec("Domain registration",body);
+}
+function fpFilings(f){
+  if(!f) return "";
+  const ciks=(f.ciks||[]).slice(0,8).map(c=>
+    `<a class="match" href="${safeHref('https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK='+encodeURIComponent(c)+'&owner=include&count=40')}" target="_blank" rel="noopener noreferrer">${esc(c)}</a>`).join(" · ");
+  const recent=(f.recent_filings||[]).slice(0,8).map(r=>
+    `<div class="ld-kv"><span class="kv">${esc(r.date||"")}</span><span class="val">${esc(r.type||"")}${r.cik?" · CIK "+esc(r.cik):""}</span></div>`).join("");
+  const body=`<div class="val">${esc((f.filers||[]).slice(0,8).join(" · "))}</div>`+
+    ((f.tickers||[]).length?`<div class="info" style="margin-top:6px">tickers: ${esc(f.tickers.join(", "))}</div>`:"")+
+    (ciks?`<div class="info" style="margin-top:6px">CIK: ${ciks}</div>`:"")+recent;
+  return panelSec("SEC filings",body);
+}
+function fpGithub(g){
+  if(!g) return "";
+  const stats=[g.location,g.public_repos!=null?g.public_repos+" public repos":"",g.followers!=null?g.followers+" followers":""].filter(Boolean).join(" · ");
+  const langs=(g.languages||[]).slice(0,12).map(l=>`<span class="fp-chip">${esc(l)}</span>`).join("");
+  const repos=(g.repos||[]).slice(0,8).map(r=>
+    `<div class="ld-kv"><a class="match" href="${safeHref(r.url||'#')}" target="_blank" rel="noopener noreferrer">${esc(r.name||"?")}</a><span class="info">${esc(r.language||"")} ${r.stars!=null?"· ★"+esc(r.stars):""}</span></div>`).join("");
+  const body=`<div class="val">${esc(g.name||g.login||"")} ${g.url?`<a class="match" href="${safeHref(g.url)}" target="_blank" rel="noopener noreferrer">↗</a>`:""}</div>`+
+    (g.description?`<div class="info" style="margin-top:5px">${esc(g.description)}</div>`:"")+
+    (stats?`<div class="info" style="margin-top:5px">${esc(stats)}</div>`:"")+
+    (langs?`<div class="fp-chips" style="margin-top:9px">${langs}</div>`:"")+
+    (repos?`<div class="plabel" style="margin:13px 0 6px">Active repositories</div>${repos}`:"");
+  return panelSec("GitHub organisation",body);
+}
+function fpArchive(a){
+  if(!a) return "";
+  const samples=(a.samples||[]).slice(0,8).map(s=>
+    `<div class="ld-kv"><a class="match" href="${safeHref(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.date||"")}</a><span class="info">${esc((s.original||"").slice(0,90))}</span></div>`).join("");
+  return panelSec("Web archive",`<div class="val">${esc(a.domain||"")} · ${esc(a.count||0)} archived pages</div>`+
+    `<div class="info" style="margin-top:5px">${a.first?"first: "+esc(a.first):""}${a.last?" · last: "+esc(a.last):""}</div>`+
+    (a.note?`<div class="info" style="margin-top:5px">${esc(a.note)}</div>`:"")+samples);
+}
+function fpHiring(h){
+  if(!h) return "";
+  const skills=(h.skills||[]).slice(0,20).map(s=>`<span class="fp-chip">${esc(s.name)} × ${esc(s.count)}</span>`).join("")||'<span class="info">—</span>';
+  const depts=(h.departments||[]).slice(0,16).map(d=>`<span class="fp-chip">${esc(d)}</span>`).join("")||'<span class="info">—</span>';
+  const offices=(h.locations||[]).slice(0,24).map(l=>`<span class="fp-chip">${esc(l)}</span>`).join("")||'<span class="info">—</span>';
+  const posts=(h.postings||[]).slice(0,20).map(p=>
+    `<div class="ld-kv"><a class="match" href="${safeHref(p.url||'#')}" target="_blank" rel="noopener noreferrer">${esc(p.title||"?")}</a><span class="info">${esc((p.location||"")+" "+(p.skills||[]).slice(0,3).join(", "))}</span></div>`).join("");
+  return panelSec(`Hiring &amp; tech signals — ${esc(h.count||0)} posts via ${esc(h.source||"ATS")}`,
+    `<div class="plabel" style="margin:0 0 6px">Tech mentioned in job ads</div><div class="fp-chips">${skills}</div>`+
+    `<div class="plabel" style="margin:13px 0 6px">Teams</div><div class="fp-chips">${depts}</div>`+
+    `<div class="plabel" style="margin:13px 0 6px">Office locations</div><div class="fp-chips">${offices}</div>`+
+    (posts?`<div class="plabel" style="margin:13px 0 6px">Recent openings</div>${posts}`:""));
+}
+function fpPivots(links){
+  if(!(links||[]).length) return "";
+  const groups={};
+  links.forEach(l=>{ (groups[l.group||"More"]=groups[l.group||"More"]||[]).push(l); });
+  const body=Object.entries(groups).map(([group,items])=>
+    `<div class="fp-pivot-group"><div class="plabel" style="margin:0 0 6px">${esc(group)}</div><div class="fp-launchers">`+
+    items.map(l=>`<a class="launch-btn" href="${safeHref(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")+`</div></div>`).join("");
+  return panelSec("Continue the investigation",body);
 }
 function renderFootprint(d){
   const el=$("#fpResult"), parts=[];
@@ -203,12 +303,22 @@ function renderFootprint(d){
     const notes=(d.errors||[]).map(e=>`<li>${esc(e)}</li>`).join("");
     el.innerHTML='<div class="pulse-empty err">Footprint incomplete — no usable source data.</div>'+
       (notes?`<ul class="sig-list">${notes}</ul>`:"")+
+      (d.pivots&&d.pivots.length?fpPivots(d.pivots):"")+
       '<div style="margin-top:10px"><button id="fpRetry" class="vh-btn">retry</button></div>';
     const rb=$("#fpRetry"); if(rb) rb.addEventListener("click",e=>runFootprint(d.target||$("#fpInput").value,e.currentTarget));
     return;
   }
-  const sub=(d.subdomains||[]).length, svc=(d.services||[]).length, jc=d.jobs?d.jobs.count:0;
-  parts.push(`<div class="fp-summary"><span class="fp-stat"><b>${esc(d.domain||d.target)}</b></span><span class="fp-stat">${sub} subdomains</span><span class="fp-stat">${svc} hosts mapped</span><span class="fp-stat">${jc} job posts</span></div>`);
+  const sub=(d.subdomains||[]).length, svc=(d.services||[]).length;
+  const jc=d.hiring?d.hiring.count:(d.jobs?d.jobs.count:0);
+  const domainCount=(d.domains||[d.domain]).filter(Boolean).length;
+  parts.push(`<div class="fp-summary"><span class="fp-stat"><b>${esc(d.name||d.domain||d.target)}</b></span>`+
+    `<span class="fp-stat">${domainCount} domain${domainCount===1?"":"s"}</span>`+
+    `<span class="fp-stat">${sub} subdomains</span><span class="fp-stat">${svc} hosts mapped</span>`+
+    `<span class="fp-stat">${jc} job posts</span></div>`);
+  parts.push(fpPivots(d.pivots));
+  parts.push(fpProfile(d.profile));
+  parts.push(fpFilings(d.filings));
+  parts.push(fpGithub(d.github));
   if((d.errors||[]).length){
     parts.push(`<div class="pulse-empty err" style="margin-bottom:10px">Source / coverage notes — results may be partial:</div><ul class="sig-list">${d.errors.map(e=>`<li>${esc(e)}</li>`).join("")}</ul>`);
   }
@@ -218,6 +328,7 @@ function renderFootprint(d){
     const rows=(r.findings||[]).map(f=>`<div class="risk-row rk-${esc(f.level)}"><span class="rk-dot"></span><span class="rk-svc">${esc(f.service)}${f.port?':'+f.port:''}</span><span class="rk-host">${esc(f.host||f.ip||'')}</span><span class="rk-why">${esc(f.why)}</span></div>`).join("");
     parts.push(`<div class="verdict verdict-${esc(r.posture)}"><div class="vd-head"><span class="vd-tag">ATTACK SURFACE</span><span class="vd-text">${esc(r.headline)}</span></div><div class="risk-chips">${chips}</div>${rows?`<div class="risk-list">${rows}</div>`:`<div class="info" style="margin-top:6px">${r.posture==="incomplete"?"Checks incomplete — exposure can't be judged from what was collected (see notes above).":"No notable ports or CVEs on the hosts that were actually scanned."}</div>`}</div>`);
   }
+  parts.push(fpRegistration(d.registration));
   if(d.dns&&Object.keys(d.dns).length){
     const rows=Object.entries(d.dns).map(([k,v])=>`<div class="ld-kv"><span class="kv">${esc(k)}</span><span class="val">${esc(Array.isArray(v)?v.join(", "):String(v))}</span></div>`).join("");
     parts.push(panelSec("DNS",rows));
@@ -232,18 +343,15 @@ function renderFootprint(d){
     }).join("");
     parts.push(panelSec("Exposed services",`<div class="fp-svc-grid">${rows}</div>`));
   }
+  parts.push(fpArchive(d.archive));
   if(sub) parts.push(panelSec(`Subdomains (${sub})`,`<div class="fp-subs">${d.subdomains.slice(0,120).map(s=>`<span>${esc(s)}</span>`).join("")}</div>`));
-  if(d.jobs){
-    const j=d.jobs;
-    const offices=(j.locations||[]).slice(0,24).map(l=>`<span class="fp-chip">${esc(l)}</span>`).join("")||'<span class="info">—</span>';
-    const posts=(j.postings||[]).slice(0,25).map(p=>`<div class="ld-kv"><a class="match" href="${safeHref(p.url||'#')}" target="_blank" rel="noopener noreferrer">${esc(p.title||'?')}</a><span class="info">${esc(p.location||'')}</span></div>`).join("");
-    parts.push(panelSec(`Public job posts — ${j.count} via ${esc(j.source)}`,`<div class="plabel" style="margin:0 0 6px">Office locations</div><div class="fp-chips">${offices}</div><div class="plabel" style="margin:13px 0 6px">Recent openings</div>${posts}`));
-  }
+  parts.push(fpHiring(d.hiring || d.jobs));
   if(d.note) parts.push(`<div class="rd-empty">${esc(d.note)}</div>`);
   el.innerHTML=parts.join("")||'<div class="rd-empty">no footprint data.</div>';
 }
 $("#fpGo").addEventListener("click",e=>runFootprint($("#fpInput").value,e.currentTarget));
 $("#fpInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runFootprint($("#fpInput").value,e.currentTarget); });
+$("#fpDomains").addEventListener("keydown",e=>{ if(e.key==="Enter") runFootprint($("#fpInput").value,e.currentTarget); });
 // ---------- Image Intelligence ----------
 function initImage(){ $("#imgUrl").focus(); }
 async function runImage(btn=$("#imgGo")){

@@ -243,12 +243,23 @@
     <section id="view-footprint" class="view" hidden>
       <div class="wrap">
         <div class="view-head"><h2>Company Footprint</h2>
-          <span class="vh-sub">domains · subdomains · exposed services · public job posts</span></div>
-        <div class="fp-search">
-          <input id="fpInput" placeholder="company domain (acme.com) or name (Acme)…" autocomplete="off" spellcheck="false"/>
-          <button id="fpGo">Map footprint</button>
+          <span class="vh-sub">identity · registration · subdomains · exposed services · hiring signals</span></div>
+        <div class="pulse-note">Everything here comes from <b>public, keyless sources</b>. The more you know, the more Kyther can correlate — a <b>domain</b> unlocks registration and infrastructure mapping.</div>
+        <div class="fp-form panel">
+          <div class="fp-row">
+            <label>Company name<input id="fpInput" placeholder="e.g. Acme Corp" autocomplete="off" spellcheck="false"/></label>
+            <label>Domains<input id="fpDomains" placeholder="acme.com, acme.io" autocomplete="off" spellcheck="false"/></label>
+          </div>
+          <div class="fp-row">
+            <label>Aliases / former names<input id="fpAliases" placeholder="Acme Ltd, old-brand" autocomplete="off" spellcheck="false"/></label>
+            <label>Country / HQ<input id="fpCountry" placeholder="e.g. United States" autocomplete="off" spellcheck="false"/></label>
+          </div>
+          <div class="fp-actions">
+            <label class="fp-check"><input type="checkbox" id="fpDeep" checked /> Deep public-source scan <span class="info">(Wikipedia / Wikidata · GitHub · web archive)</span></label>
+            <button id="fpGo">Map footprint</button>
+          </div>
         </div>
-        <div id="fpResult"><div class="rd-empty">enter a company domain to map its external surface and hiring signals.</div></div>
+        <div id="fpResult"><div class="rd-empty">add a company name and, if you have one, a domain — then map its public footprint.</div></div>
       </div>
     </section>
 
