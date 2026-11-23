@@ -1,10 +1,11 @@
 // Entry point: wire view hooks, navigation and the initial dashboard load.
-import { $, cmdIn, registerViewHooks, setRefreshLogs, showView,
-         banner, renderStats, renderLog } from './core.js';
-import './scan.js';
-import { loadNews, renderAttacks, loadThreats, initPulse } from './feeds.js';
-import { renderLogsFull, initImage } from './views.js';
+(function(K){
+"use strict";
+const {$, cmdIn, registerViewHooks, setRefreshLogs, showView,
+       banner, renderStats, renderLog, loadNews, renderAttacks, loadThreats,
+       initPulse, renderLogsFull, initImage} = K;
 
+// Entry point: wire view hooks, navigation and the initial dashboard load.
 setRefreshLogs(renderLogsFull);
 registerViewHooks({
   logs: renderLogsFull,
@@ -26,3 +27,5 @@ banner(); renderStats(); renderLog(); loadNews(); cmdIn.focus();
 if("serviceWorker" in navigator){
   window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(()=>{}));
 }
+
+})(window.Kyther = window.Kyther || {});

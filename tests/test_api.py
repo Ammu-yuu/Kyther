@@ -55,8 +55,9 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         async with await self._client() as c:
             html = await c.get("/")
             self.assertEqual(html.status_code, 200)
-            self.assertIn("/assets/js/app.js", html.text)
-            self.assertIn("/assets/base.css", html.text)
+            self.assertIn("assets/js/app.js", html.text)
+            self.assertIn("assets/base.css", html.text)
+            self.assertEqual(html.headers["cache-control"], "no-cache")
 
             js = await c.get("/assets/js/app.js")
             self.assertEqual(js.status_code, 200)

@@ -23,7 +23,9 @@ class RevalidatedStaticFiles(StaticFiles):
 
 @router.get("/")
 async def index() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+    # The service worker also caches the shell; no-cache keeps a redeploy from
+    # being hidden behind a stale HTML document.
+    return FileResponse(WEB_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 # ── PWA: manifest, service worker, and app icons (for add-to-home-screen) ────

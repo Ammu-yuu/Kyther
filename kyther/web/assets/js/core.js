@@ -1,16 +1,20 @@
+// Shared browser-side primitives (classic script for file:// compatibility).
+(function(K){
+"use strict";
+
 // Shared browser-side primitives: DOM helpers, safe fetching with cancellation,
 // local storage state and view plumbing. No view-specific code lives here.
-export const API = location.protocol.startsWith("http") ? "" : "http://127.0.0.1:8099";
-export const $ = s => document.querySelector(s);
-export const term = $("#term"), cmdIn = $("#cmd");
+const API = location.protocol.startsWith("http") ? "" : "http://127.0.0.1:8099";
+const $ = s => document.querySelector(s);
+const term = $("#term"), cmdIn = $("#cmd");
 
-export const store = {
+const store = {
   get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}},
   set:(k,v)=>localStorage.setItem(k,JSON.stringify(v)),
 };
 
-export const TYPES = ["username","email","domain","ip","phone","person","company"];
-export const state = {
+const TYPES = ["username","email","domain","ip","phone","person","company"];
+const state = {
   TYPE: "username",
   busy: false,
   LAST_SEARCH: null,
@@ -28,16 +32,16 @@ if(_mig) store.set("kyther_log",state.log);
 
 // ---- Cancellation + busy affordances --------------------------------------
 const _controllers = new Map();
-export function beginRequest(key){
+function beginRequest(key){
   _controllers.get(key)?.abort();               // supersede the previous request
   const controller = new AbortController();
   _controllers.set(key, controller);
   return controller;
 }
-export function endRequest(key, controller){
+function endRequest(key, controller){
   if(_controllers.get(key) === controller) _controllers.delete(key);
 }
-export function isAbort(e){ return !!e && e.name === "AbortError"; }
+function isAbort(e){ return !!e && e.name === "AbortError"; }
 
 // Fetch + status check in one place: a 500 returning JSON must not be rendered
 // as if the lookup succeeded.
@@ -47,24 +51,24 @@ async function check(r){
   try { detail = (await r.json()).detail || ""; } catch(_) {}
   throw new Error(detail ? JSON.stringify(detail) : "HTTP " + r.status);
 }
-export async function apiJson(url, opts){
+async function apiJson(url, opts){
   return (await check(await fetch(url, opts))).json();
 }
-export async function apiBlob(url, opts){
+async function apiBlob(url, opts){
   return (await check(await fetch(url, opts))).blob();
 }
 // One caller per key: a second click cancels the first instead of racing it.
-export async function requestJson(key, url, opts={}){
+async function requestJson(key, url, opts={}){
   const controller = beginRequest(key);
   try { return await apiJson(url, {...opts, signal: controller.signal}); }
   finally { endRequest(key, controller); }
 }
-export async function requestBlob(key, url, opts={}){
+async function requestBlob(key, url, opts={}){
   const controller = beginRequest(key);
   try { return await apiBlob(url, {...opts, signal: controller.signal}); }
   finally { endRequest(key, controller); }
 }
-export function setButtonBusy(btn, text){
+function setButtonBusy(btn, text){
   if(!btn) return ()=>{};
   const idle = btn.dataset.idleLabel ?? btn.textContent;
   btn.dataset.idleLabel = idle;
@@ -82,9 +86,9 @@ export function setButtonBusy(btn, text){
 // listeners, and the core module stays free of view imports.
 const _viewHooks = {};
 let _refreshLogs = ()=>{};
-export function registerViewHooks(hooks){ Object.assign(_viewHooks, hooks); }
-export function setRefreshLogs(fn){ _refreshLogs = fn; }
-export function showView(v){
+function registerViewHooks(hooks){ Object.assign(_viewHooks, hooks); }
+function setRefreshLogs(fn){ _refreshLogs = fn; }
+function showView(v){
   document.querySelectorAll(".view").forEach(s=>{ s.hidden = s.id!=="view-"+v; });
   document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
   if(v==="reddit") $("#rdInput").focus();
@@ -100,10 +104,10 @@ term.addEventListener("click",e=>{
   el.style.display=showing?"none":"inline";
   ex.textContent=(showing?"show ":"hide ")+ex.dataset.n+(showing?" ▸":" ▾");
 });
-export const esc=s=>String(s).replace(/[&<>"'`]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;","`":"&#96;"}[c]));
+const esc=s=>String(s).replace(/[&<>"'`]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;","`":"&#96;"}[c]));
 // Only http(s) URLs (or in-page anchors) may become clickable links. Third-party
 // data must never put javascript:/data: into an href, even when HTML-escaped.
-export function safeHref(u){
+function safeHref(u){
   const s=String(u==null?'':u).trim();
   if(s.startsWith('#')) return esc(s);
   try{
@@ -111,13 +115,13 @@ export function safeHref(u){
     return (parsed.protocol==='http:'||parsed.protocol==='https:')?esc(parsed.href):'#';
   }catch(e){ return '#'; }
 }
-export function put(html,cls){ const d=document.createElement("div"); d.className="line "+(cls||""); d.innerHTML=html; term.appendChild(d); term.scrollTop=term.scrollHeight; return d; }
-export function banner(){
+function put(html,cls){ const d=document.createElement("div"); d.className="line "+(cls||""); d.innerHTML=html; term.appendChild(d); term.scrollTop=term.scrollHeight; return d; }
+function banner(){
   put('<span class="ok">Kyther</span> <span class="info">v0.2 — 20 analyzers online</span>');
   put('<span class="info">type a command, or use Quick Search below. `help` for options.</span>');
   put('&nbsp;');
 }
-export function renderStats(){
+function renderStats(){
   $("#stScanned").textContent=state.stats.scanned;
   $("#stFound").textContent=state.stats.found.toLocaleString();
   $("#stRate").textContent=state.stats.scanned?Math.round(state.stats.hits/state.stats.scanned*100*10)/10+"%":"—";
@@ -134,14 +138,14 @@ function renderRisk(){
   fac.innerHTML='<div class="rf-label">Top factors</div>' +
     (r.factors||[]).map(f=>`<div class="rf"><span class="lbl">• ${esc(f.label)}</span><span class="pts">${f.points}</span></div>`).join("");
 }
-export function renderLog(){
+function renderLog(){
   const el=$("#logList");
   if(!state.log.length){ el.innerHTML='<div class="log-empty">no searches yet — run a command above.</div>'; return; }
   el.innerHTML=state.log.slice(0,25).map(e=>
     `<div class="log-item" data-id="${esc(e.id||"")}"><span class="log-time">${esc(e.time)}</span><span class="log-cmd"><span class="t">--${esc(e.type)}</span> ${esc(e.value)}</span><span class="log-res">${esc(e.result)}</span></div>`
   ).join("");
 }
-export function addLog(type,value,result,detail){
+function addLog(type,value,result,detail){
   const id="s"+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
   state.log.unshift({id, ts:Date.now(), time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}),type,value,result});
   state.log=state.log.slice(0,60); store.set("kyther_log",state.log);
@@ -163,5 +167,11 @@ function saveDetail(id,d){
     while(ids.length){ delete det[ids.pop()]; try{ store.set("kyther_details",det); break; }catch(__){} }
   }
 }
-export function getDetail(id){ return store.get("kyther_details",{})[id]||null; }
-export function ago(ts){ if(!ts)return""; const s=Date.now()/1000-ts; if(s<3600)return Math.round(s/60)+"m"; if(s<86400)return Math.round(s/3600)+"h"; return Math.round(s/86400)+"d"; }
+function getDetail(id){ return store.get("kyther_details",{})[id]||null; }
+function ago(ts){ if(!ts)return""; const s=Date.now()/1000-ts; if(s<3600)return Math.round(s/60)+"m"; if(s<86400)return Math.round(s/3600)+"h"; return Math.round(s/86400)+"d"; }
+
+Object.assign(K, {API, $, term, cmdIn, store, TYPES, state,
+  beginRequest, endRequest, isAbort, apiJson, apiBlob, requestJson, requestBlob,
+  setButtonBusy, registerViewHooks, setRefreshLogs, showView,
+  esc, safeHref, put, banner, renderStats, renderLog, addLog, getDetail, ago});
+})(window.Kyther = window.Kyther || {});

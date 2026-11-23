@@ -1,18 +1,21 @@
 // Detail views: logs, Reddit, Company Footprint and Image Intelligence.
-import { API, $, state, store, esc, safeHref, requestJson,
-         setButtonBusy, isAbort, showView, getDetail } from './core.js';
-import { runSearch, runAudit, setType, dedupe } from './scan.js';
+(function(K){
+"use strict";
+const {API, $, state, store, esc, safeHref, requestJson,
+       setButtonBusy, isAbort, showView, getDetail} = K;
+const {runSearch, runAudit, setType, dedupe} = K;
 
+// Detail views: logs, Reddit, Company Footprint and Image Intelligence.
 function panelSec(label,html){ return html?`<div class="th-sec"><div class="plabel">${label}</div>${html}</div>`:""; }
 function riskColor(tier){ return (tier==="Critical"||tier==="High")?"var(--dot-r)":tier==="Medium"?"var(--dot-y)":"var(--green)"; }
 
 // ---------- Logs view ----------
-export function renderLogsFull(){
+function renderLogsFull(){
   const el=$("#logsFull"); if(!el) return;
   if(!state.log.length){ el.innerHTML='<div class="ld-empty">no searches yet.</div>'; $("#logsDetail").innerHTML='<div class="ld-empty">run a search from Home to see it here.</div>'; return; }
   el.innerHTML=state.log.map(e=>`<div class="log-row${e.id===state.selectedLogId?" on":""}" data-id="${esc(e.id)}"><div class="lr-top"><span class="lr-val">${esc(e.value)}</span><span class="lr-type">--${esc(e.type)}</span></div><div class="lr-meta"><span>${esc(e.time)}</span><span>·</span><span>${esc(e.result)}</span></div></div>`).join("");
 }
-export function selectLog(id){
+function selectLog(id){
   state.selectedLogId=id; renderLogsFull();
   const entry=state.log.find(e=>e.id===id), box=$("#logsDetail");
   box.innerHTML = entry ? detailHTML(entry) : '<div class="ld-empty">not found.</div>';
@@ -112,7 +115,7 @@ $("#logList").addEventListener("click",e=>{ const it=e.target.closest(".log-item
 $("#attacksRefresh").addEventListener("click",e=>loadNews(e.currentTarget));
 // ---------- Reddit view ----------
 let rdBusy=false;
-export async function runReddit(raw,btn=$("#rdGo")){
+async function runReddit(raw,btn=$("#rdGo")){
   if(rdBusy) return;
   const u=(raw||"").trim(); if(!u) return;
   rdBusy=true; const done=setButtonBusy(btn);
@@ -183,7 +186,7 @@ function renderReddit(d){
 $("#rdGo").addEventListener("click",e=>runReddit($("#rdInput").value,e.currentTarget));
 $("#rdInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runReddit($("#rdInput").value,e.currentTarget); });
 // ---------- Company Footprint ----------
-export async function runFootprint(q,btn=$("#fpGo")){
+async function runFootprint(q,btn=$("#fpGo")){
   q=(q||"").trim(); if(!q) return;
   const el=$("#fpResult"), done=setButtonBusy(btn);
   el.innerHTML='<div class="rd-empty">mapping footprint — subdomains, services, job posts… (can take ~20s)</div>';
@@ -242,8 +245,8 @@ function renderFootprint(d){
 $("#fpGo").addEventListener("click",e=>runFootprint($("#fpInput").value,e.currentTarget));
 $("#fpInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runFootprint($("#fpInput").value,e.currentTarget); });
 // ---------- Image Intelligence ----------
-export function initImage(){ $("#imgUrl").focus(); }
-export async function runImage(btn=$("#imgGo")){
+function initImage(){ $("#imgUrl").focus(); }
+async function runImage(btn=$("#imgGo")){
   const url=$("#imgUrl").value.trim(), el=$("#imgResult"), done=setButtonBusy(btn);
   if(!url && !window.__imgData){ el.innerHTML='<div class="rd-empty">paste an image URL or upload a file.</div>'; return; }
   el.innerHTML='<div class="rd-empty">reading image…</div>';
@@ -302,3 +305,7 @@ $("#imgFile").addEventListener("change",function(){
   rd.onload=()=>{ window.__imgData=rd.result; $("#imgUrl").value=""; runImage(); };
   rd.readAsDataURL(f);
 });
+
+Object.assign(K, {renderLogsFull, selectLog, runReddit,
+  runFootprint, initImage, runImage});
+})(window.Kyther = window.Kyther || {});

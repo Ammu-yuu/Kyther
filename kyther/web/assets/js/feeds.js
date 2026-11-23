@@ -1,6 +1,10 @@
 // Live feeds: cyber news, threat actors and World Pulse coverage.
-import { API, $, state, esc, safeHref, ago, requestJson, setButtonBusy, isAbort } from './core.js';
-export async function loadNews(btn=$("#attacksRefresh")){
+(function(K){
+"use strict";
+const {API, $, state, esc, safeHref, ago, requestJson, setButtonBusy, isAbort} = K;
+
+// Live feeds: cyber news, threat actors and World Pulse coverage.
+async function loadNews(btn=$("#attacksRefresh")){
   const done=setButtonBusy(btn);
   try{
     state.NEWS=await requestJson("news",API+"/api/news");
@@ -12,7 +16,7 @@ export async function loadNews(btn=$("#attacksRefresh")){
     $("#newsList").innerHTML='<div class="news-loading">feed unavailable.</div>';
   }finally{ done(); renderAttacks(); }
 }
-export function renderAttacks(){
+function renderAttacks(){
   const el=$("#attacksList"); if(!el) return;
   if(!state.NEWS.length){ el.innerHTML='<div class="news-loading">feed unavailable.</div>'; return; }
   el.innerHTML=state.NEWS.map((n,i)=>`<a class="attack-item" href="${safeHref(n.url)}" target="_blank" rel="noopener noreferrer"><div class="ai-idx">${String(i+1).padStart(2,"0")}</div><div class="ai-body"><div class="ai-title">${esc(n.title)}</div><div class="ai-meta">${esc(n.source)} · ${esc(ago(n.ts))} ago</div></div><div class="ai-arrow">↗</div></a>`).join("");
@@ -73,7 +77,7 @@ function motiveTags(a){
   return tags.join("");
 }
 
-export async function loadThreats(force,btn=$("#threatsRefresh")){
+async function loadThreats(force,btn=$("#threatsRefresh")){
   if(threatsBusy) return;
   if(state.THREATS && !force){ renderThreats(); return; }
   threatsBusy=true;
@@ -96,7 +100,7 @@ export async function loadThreats(force,btn=$("#threatsRefresh")){
   }finally{ threatsBusy=false; done(); }
 }
 
-export function renderThreats(){
+function renderThreats(){
   const t=state.THREATS||{}, attacks=t.attacks||[], actors=t.actors||[];
   $("#thAttackMeta").textContent = attacks.length?`· ${attacks.length} latest, newest first`:"";
   const activeN=actors.filter(a=>a._active).length;
@@ -220,7 +224,7 @@ function setPulseRegions(regions, selected){
   const src=(regions&&Object.keys(regions).length)?regions:PULSE_REGIONS_FALLBACK;
   sel.innerHTML=Object.entries(src).map(([k,v])=>`<option value="${esc(k)}"${k===selected?" selected":""}>${esc(v)}</option>`).join("");
 }
-export function initPulse(){
+function initPulse(){
   if(pulseInited){ $("#pulseInput").focus(); return; }
   pulseInited=true;
   loadPulseTrending("en");
@@ -229,7 +233,7 @@ export function initPulse(){
 function trendRetryButton(id){
   return `<div style="margin-top:10px"><button id="${id}" class="vh-btn">retry</button></div>`;
 }
-export async function loadPulseTrending(region,btn=$("#pulseRefresh")){
+async function loadPulseTrending(region,btn=$("#pulseRefresh")){
   const el=$("#pulseTrend"), done=setButtonBusy(btn);
   el.innerHTML='<div class="rd-empty">loading trending topics…</div>';
   try{
@@ -250,7 +254,7 @@ export async function loadPulseTrending(region,btn=$("#pulseRefresh")){
   }finally{ done(); }
 }
 let pulseBusy=false;
-export async function runPulseTopic(q,btn=$("#pulseGo")){
+async function runPulseTopic(q,btn=$("#pulseGo")){
   q=(q||"").trim(); if(!q||pulseBusy) return;
   pulseBusy=true; pulseTopic=q;
   const done=setButtonBusy(btn);
@@ -297,3 +301,7 @@ $("#pulseRegion").addEventListener("change",e=>loadPulseTrending(e.target.value,
 $("#pulseTrend").addEventListener("click",e=>{ const c=e.target.closest(".pulse-chip"); if(c) runPulseTopic(c.dataset.topic,e.currentTarget); });
 $("#pulseGo").addEventListener("click",e=>runPulseTopic($("#pulseInput").value,e.currentTarget));
 $("#pulseInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runPulseTopic($("#pulseInput").value,e.currentTarget); });
+
+Object.assign(K, {loadNews, renderAttacks, loadThreats, renderThreats,
+  initPulse, loadPulseTrending, runPulseTopic});
+})(window.Kyther = window.Kyther || {});

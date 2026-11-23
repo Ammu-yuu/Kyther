@@ -1,8 +1,8 @@
 /* Kyther service worker — network-first so content is always fresh, with an
    offline fallback to the cached app shell. Only registers over HTTPS or
    localhost (e.g. a Tailscale *.ts.net URL); a no-op over plain HTTP. */
-const CACHE = "kyther-shell-v2";
-const SHELL = ["/", "/manifest.webmanifest",
+const CACHE = "kyther-shell-v5";
+const SHELL = ["/manifest.webmanifest",
                "/assets/base.css", "/assets/views.css",
                "/assets/js/app.js", "/assets/js/core.js", "/assets/js/scan.js",
                "/assets/js/feeds.js", "/assets/js/views.js",
@@ -23,9 +23,18 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;                 // never cache API POSTs
-  if (new URL(req.url).pathname.startsWith("/api/")) return;  // API always live
+  const url = new URL(req.url);
+  if (url.pathname.startsWith("/api/")) return;     // API always live
+  // Never serve the HTML shell from Cache Storage: a stale document is exactly
+  // what breaks a redeploy (old <script> tags, missing new assets).
+  if (req.mode === "navigate") {
+    e.respondWith(fetch(req, {cache: "reload"}));
+    return;
+  }
   e.respondWith(
-    fetch(req)
+    // Bypass the browser HTTP cache too: an old asset can otherwise survive a
+    // redeploy even when this service worker is network-first.
+    fetch(req, {cache: "reload"})
       .then((res) => {
         if (res && res.ok && res.type === "basic") {
           const copy = res.clone();

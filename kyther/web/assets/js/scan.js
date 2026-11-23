@@ -1,8 +1,11 @@
 // Home view: scanning, self-audit, result rendering and PDF reports.
-import { API, $, cmdIn, state, store, TYPES, esc, put, addLog, renderStats } from './core.js';
-import { requestJson, requestBlob, setButtonBusy, isAbort } from './core.js';
+(function(K){
+"use strict";
+const {API, $, cmdIn, state, store, TYPES, esc, put, addLog, renderStats,
+       requestJson, requestBlob, setButtonBusy, isAbort} = K;
 
-export async function runSearch(type,value){
+// Home view: scanning, self-audit, result rendering and PDF reports.
+async function runSearch(type,value){
   if(state.busy) return; value=(value||"").trim(); if(!value) return;
   state.busy=true; $("#qgo").disabled=true; cmdIn.disabled=true;
   put(`<span class="cmd"><span class="match">&gt;</span> search --${esc(type)} ${esc(value)}</span>`);
@@ -29,7 +32,7 @@ export async function runSearch(type,value){
   }
 }
 
-export async function runAudit(){
+async function runAudit(){
   if(state.busy) return;
   state.busy=true; $("#qgo").disabled=true; $("#auditGo").disabled=true; cmdIn.disabled=true;
   put(`<span class="cmd"><span class="match">&gt;</span> audit --self</span>`);
@@ -81,7 +84,7 @@ function renderAudit(d,secs){
 }
 
 const CONF_RANK={possible:0,probable:1,confirmed:2};
-export function dedupe(profiles){
+function dedupe(profiles){
   // Merge duplicate sites by host, keeping the BEST confidence — so a WhatsMyName
   // CONFIRMED isn't shadowed by a Sherlock POSSIBLE for the same site, whatever order.
   const by=new Map();
@@ -94,7 +97,7 @@ export function dedupe(profiles){
   return [...by.values()];
 }
 
-export function renderResult(d,secs){
+function renderResult(d,secs){
   const seed=d.seed;
   const cat=c=>d.findings.filter(f=>f.category===c);
   const accounts=dedupe(cat("accounts").flatMap(f=>f.data.profiles||[]));
@@ -155,7 +158,7 @@ export function renderResult(d,secs){
   if(!accounts.length && !dos.primary_name && !(dos.emails||[]).length && !cat("infrastructure").length) put(`<span class="info">    no results — try a different value or type.</span>`);
 }
 
-export function updateFromResult(d,type,value){
+function updateFromResult(d,type,value){
   const n=dedupe(d.findings.filter(f=>f.category==="accounts").flatMap(f=>f.data.profiles||[])).length;
   const breaches=d.findings.filter(f=>f.category==="breaches").reduce((a,f)=>a+((f.data.breaches||[]).length),0);
   const hit=n>0||!!(d.dossier&&d.dossier.primary_name)||d.findings.length>0;
@@ -193,7 +196,7 @@ $("#auditGo").addEventListener("click",()=>runAudit());
 $("#qval").addEventListener("keydown",e=>{ if(e.key==="Enter"){ const v=$("#qval").value; $("#qval").value=""; runSearch(state.TYPE,v); } });
 $("#logClear").addEventListener("click",()=>{ state.log=[]; store.set("kyther_log",state.log); renderLog(); });
 // ---- Generate Report: re-scans the last target and downloads a PDF ----
-export async function generateReport(btn=$("#reportBtn")){
+async function generateReport(btn=$("#reportBtn")){
   if(!state.LAST_SEARCH) return;
   const st=$("#reportStatus"), done=setButtonBusy(btn);
   st.className="report-status busy";
@@ -213,4 +216,8 @@ export async function generateReport(btn=$("#reportBtn")){
   }finally{ done(); }
 }
 $("#reportBtn").addEventListener("click", generateReport);
-export function setType(t){ if(!TYPES.includes(t)) return; state.TYPE=t; document.querySelectorAll(".qs-btn").forEach(x=>x.classList.toggle("on",x.dataset.type===t)); }
+function setType(t){ if(!TYPES.includes(t)) return; state.TYPE=t; document.querySelectorAll(".qs-btn").forEach(x=>x.classList.toggle("on",x.dataset.type===t)); }
+
+Object.assign(K, {runSearch, runAudit, dedupe, renderResult,
+  updateFromResult, generateReport, setType});
+})(window.Kyther = window.Kyther || {});
