@@ -105,6 +105,74 @@ def _norm_text(value) -> str:
     return _SPACE_RE.sub(" ", re.sub(r"[^a-z0-9]+", " ", str(value or "").lower())).strip()
 
 
+def _host(value) -> str:
+    """Return the hostname of a URL-ish value, without port or leading www."""
+    try:
+        host = urlsplit(str(value or "").strip()).netloc.lower()
+    except Exception:
+        return ""
+    return host.split(":")[0].lstrip("www.")
+
+
+def _registrable(host: str) -> str:
+    parts = [p for p in host.split(".") if p]
+    return ".".join(parts[-2:]) if len(parts) >= 2 else host
+
+
+def _names_match(candidate, primary) -> tuple[bool, str]:
+    """Strict-ish identity check: strip legal suffixes, then compare names."""
+    candidate = str(candidate or "")
+    primary = str(primary or "")
+    short_c = _norm_text(_LEGAL_SUFFIX.sub("", candidate))
+    short_p = _norm_text(_LEGAL_SUFFIX.sub("", primary))
+    full_c, full_p = _norm_text(candidate), _norm_text(primary)
+    if not short_c or not short_p:
+        return False, ""
+    if short_c == short_p or full_c == full_p:
+        return True, f"name matches {candidate!r}"
+    if short_p in short_c or short_c in short_p:
+        # 'Acme' inside 'Acme Robotics' is fine; guard against tiny generic stems.
+        if min(len(short_c), len(short_p)) >= 4:
+            return True, f"name matches {candidate!r}"
+    p_tokens, c_tokens = set(short_p.split()), set(short_c.split())
+    if p_tokens and c_tokens and len(p_tokens & c_tokens) / len(p_tokens) >= 0.6:
+        return True, f"name matches {candidate!r}"
+    return False, ""
+
+
+def verify_organisation(candidate: dict | None, name: str,
+                        domains=None) -> tuple[bool, str]:
+    """Cross-check a public-source candidate against what the user entered.
+
+    A result is only shown as *data* when its official website matches a known
+    domain, or its name clearly matches the company. This stops a same-slug
+    GitHub org or a similar-sounding Wikipedia article being presented as fact.
+    """
+    if not candidate:
+        return False, "no candidate returned"
+
+    domain_bases = {_registrable(_host(d) or str(d).lower()) for d in (domains or [])}
+    websites = [candidate.get(k) for k in ("official_website", "blog", "url", "website")]
+    websites += ((candidate.get("facts") or {}).get("Official website") or [])
+    hosts = {_registrable(_host(v)) for v in websites if _host(v)}
+    shared = (hosts & domain_bases) - {""}
+    if shared:
+        return True, f"official website matches {sorted(shared)[0]}"
+
+    for key in ("title", "name", "login", "label"):
+        ok, reason = _names_match(candidate.get(key), name)
+        if ok:
+            return True, reason
+
+    text = " ".join(str(candidate.get(k) or "") for k in ("description", "summary"))
+    if len(_norm_text(name)) >= 6:
+        ok, reason = _names_match(text, name)
+        if ok:
+            return True, f"profile text mentions {name!r}"
+
+    return False, "no matching name or official website"
+
+
 def _profile_score(page: dict, primary: str, domains=None) -> float:
     """Reject lookalike articles ('Robot' for 'Alias Robotics')."""
     title = _norm_text(page.get("title"))
@@ -259,8 +327,12 @@ async def wikidata_facts(qid: str):
 # ---------------------------------------------------------------------------
 # GitHub organisation profile and public repositories
 # ---------------------------------------------------------------------------
-async def github_org(slugs: list[str]):
-    """Find a public GitHub org matching the company, plus its active repos."""
+async def github_org(slugs: list[str], name: str = "", domains=None):
+    """Find a public GitHub org that actually matches the company.
+
+    A slug existing is not proof it belongs to the target, so each candidate is
+    cross-checked against the entered name/domain before it becomes data.
+    """
     headers = {"Accept": "application/vnd.github+json"}
     last_error = None
     for slug in (slugs or [])[:4]:
@@ -296,7 +368,7 @@ async def github_org(slugs: list[str]):
                 "forks": repo.get("forks_count"),
                 "topics": (repo.get("topics") or [])[:8],
             })
-        return {
+        candidate = {
             "login": obj.get("login"),
             "name": obj.get("name"),
             "description": obj.get("description"),
@@ -309,8 +381,15 @@ async def github_org(slugs: list[str]):
             "url": sanitize_public_url(obj.get("html_url")),
             "languages": sorted(languages),
             "repos": repos,
-        }, None
-    return None, last_error
+        }
+        verified, reason = verify_organisation(candidate, name or slug, domains)
+        if not verified:
+            last_error = f"github: no organisation verified for {slug!r} ({reason})"
+            continue
+        candidate["verified"] = True
+        candidate["match"] = reason
+        return candidate, None
+    return None, last_error or "github: no public organisation found"
 
 
 # ---------------------------------------------------------------------------
@@ -396,25 +475,31 @@ def pivot_links(terms: list[str], domains: list[str], name: str = "") -> list[di
     def add(label: str, url: str, group: str) -> None:
         safe = sanitize_public_url(url)
         if safe:
-            links.append({"label": label, "url": safe, "group": group})
+            links.append({"label": label, "url": safe, "group": group, "manual": True})
 
-    add("Google", f"https://www.google.com/search?q={q}", "Search")
-    add("Bing", f"https://www.bing.com/search?q={q}", "Search")
-    add("DuckDuckGo", f"https://duckduckgo.com/?q={q}", "Search")
-    add("News", f"https://www.google.com/search?q={q}&tbm=nws", "Search")
-    add("LinkedIn", f"https://www.linkedin.com/company/?keywords={plain}", "Profiles")
-    add("GitHub", f"https://github.com/search?q={plain}&type=repositories", "Code")
-    add("SEC EDGAR",
+    # Every label says "Search" — these are launchers for the user to open, not
+    # data Kyther fetched. LinkedIn in particular has no keyless public API.
+    add("Google", f"https://www.google.com/search?q={q}", "Search engines (manual)")
+    add("Bing", f"https://www.bing.com/search?q={q}", "Search engines (manual)")
+    add("DuckDuckGo", f"https://duckduckgo.com/?q={q}", "Search engines (manual)")
+    add("News", f"https://www.google.com/search?q={q}&tbm=nws", "Search engines (manual)")
+    add("Search LinkedIn", f"https://www.linkedin.com/company/?keywords={plain}",
+        "Profiles (manual)")
+    add("Search GitHub", f"https://github.com/search?q={plain}&type=repositories",
+        "Code (manual)")
+    add("Search SEC EDGAR",
         f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company={plain}"
-        "&owner=include&count=40", "Filings")
-    add("Wikidata", f"https://www.wikidata.org/w/index.php?search={plain}", "Identity")
+        "&owner=include&count=40", "Filings (manual)")
+    add("Search Wikidata", f"https://www.wikidata.org/w/index.php?search={plain}",
+        "Identity (manual)")
 
     for domain in (domains or [])[:3]:
         safe_domain = quote(domain, safe=".")
-        add(f"crt.sh · {domain}", f"https://crt.sh/?q=%.{safe_domain}", "Infrastructure")
+        add(f"crt.sh · {domain}", f"https://crt.sh/?q=%.{safe_domain}",
+            "Infrastructure (manual)")
         add(f"Wayback · {domain}", f"https://web.archive.org/web/*/{safe_domain}/*",
-            "Infrastructure")
+            "Infrastructure (manual)")
         add(f"Google docs · {domain}",
             f"https://www.google.com/search?q={quote(f'site:{domain} filetype:pdf', safe='')}",
-            "Documents")
+            "Documents (manual)")
     return links[:18]

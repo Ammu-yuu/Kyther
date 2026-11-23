@@ -227,7 +227,25 @@ function fpProfile(p){
                p.wikidata_url?`<a class="match" href="${safeHref(p.wikidata_url)}" target="_blank" rel="noopener noreferrer">Wikidata ↗</a>`:""].filter(Boolean).join(" · ");
   return panelSec("Company profile",`<div class="fp-lede">${esc(p.summary||"")}</div>`+
     `<div class="fp-src">${esc(p.title||p.query||"")} ${links}</div>`+
+    (p.match?`<div class="fp-match">Verified match · ${esc(p.match)}</div>`:"")+
     (facts?`<div class="fp-facts">${facts}</div>`:""));
+}
+function fpSourceChecks(checks){
+  if(!checks||!Object.keys(checks).length) return "";
+  const labels={jobs:"Hiring (ATS)",sec_edgar:"SEC filings",wikipedia:"Wikipedia",
+    wikidata:"Wikidata",github:"GitHub",linkedin:"LinkedIn",wayback:"Web archive",
+    rdap:"Registration",crtsh:"Certificates",dns:"DNS",http_probe:"Website",
+    ip_geo:"IP location",shodan_internetdb:"Ports / CVEs"};
+  const tone={verified:"good",found:"good",manual:"manual",not_found:"muted",
+    not_used:"muted",not_run:"muted",unavailable:"bad",unverified:"bad"};
+  const rows=Object.entries(checks).map(([key,item])=>{
+    const info=item||{}, status=String(info.status||"not_run");
+    return `<div class="fp-check"><span class="fp-check-name">${esc(labels[key]||key)}</span>`+
+      `<span class="fp-status st-${esc(tone[status]||"muted")}">${esc(status.replace(/_/g," "))}</span>`+
+      (info.detail?`<span class="fp-check-detail">${esc(info.detail)}</span>`:"")+`</div>`;
+  }).join("");
+  return panelSec("Source checks — what was actually verified",
+    `<div class="info" style="margin-bottom:9px">Data panels are shown only when a source returned data that matched this company. Manual search links are listed at the end.</div>${rows}`);
 }
 function fpRegistration(reg){
   const names=Object.keys(reg||{});
@@ -261,6 +279,7 @@ function fpGithub(g){
   const repos=(g.repos||[]).slice(0,8).map(r=>
     `<div class="ld-kv"><a class="match" href="${safeHref(r.url||'#')}" target="_blank" rel="noopener noreferrer">${esc(r.name||"?")}</a><span class="info">${esc(r.language||"")} ${r.stars!=null?"· ★"+esc(r.stars):""}</span></div>`).join("");
   const body=`<div class="val">${esc(g.name||g.login||"")} ${g.url?`<a class="match" href="${safeHref(g.url)}" target="_blank" rel="noopener noreferrer">↗</a>`:""}</div>`+
+    (g.match?`<div class="fp-match">Verified match · ${esc(g.match)}</div>`:"")+
     (g.description?`<div class="info" style="margin-top:5px">${esc(g.description)}</div>`:"")+
     (stats?`<div class="info" style="margin-top:5px">${esc(stats)}</div>`:"")+
     (langs?`<div class="fp-chips" style="margin-top:9px">${langs}</div>`:"")+
@@ -295,7 +314,8 @@ function fpPivots(links){
   const body=Object.entries(groups).map(([group,items])=>
     `<div class="fp-pivot-group"><div class="plabel" style="margin:0 0 6px">${esc(group)}</div><div class="fp-launchers">`+
     items.map(l=>`<a class="launch-btn" href="${safeHref(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")+`</div></div>`).join("");
-  return panelSec("Continue the investigation",body);
+  return panelSec("Manual lookups — open these yourself (not fetched by Kyther)",
+    `<div class="fp-manual-note">These are search links, not findings. Kyther has not opened them and has <b>no LinkedIn, Wikidata or GitHub data</b> from them. Anything above with a “Verified match” badge was actually fetched and cross-checked.</div>${body}`);
 }
 function renderFootprint(d){
   const el=$("#fpResult"), parts=[];
@@ -315,7 +335,7 @@ function renderFootprint(d){
     `<span class="fp-stat">${domainCount} domain${domainCount===1?"":"s"}</span>`+
     `<span class="fp-stat">${sub} subdomains</span><span class="fp-stat">${svc} hosts mapped</span>`+
     `<span class="fp-stat">${jc} job posts</span></div>`);
-  parts.push(fpPivots(d.pivots));
+  parts.push(fpSourceChecks(d.source_checks));
   parts.push(fpProfile(d.profile));
   parts.push(fpFilings(d.filings));
   parts.push(fpGithub(d.github));
@@ -347,6 +367,7 @@ function renderFootprint(d){
   if(sub) parts.push(panelSec(`Subdomains (${sub})`,`<div class="fp-subs">${d.subdomains.slice(0,120).map(s=>`<span>${esc(s)}</span>`).join("")}</div>`));
   parts.push(fpHiring(d.hiring || d.jobs));
   if(d.note) parts.push(`<div class="rd-empty">${esc(d.note)}</div>`);
+  parts.push(fpPivots(d.manual_lookups || d.pivots));
   el.innerHTML=parts.join("")||'<div class="rd-empty">no footprint data.</div>';
 }
 $("#fpGo").addEventListener("click",e=>runFootprint($("#fpInput").value,e.currentTarget));

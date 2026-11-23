@@ -52,7 +52,7 @@ The UI is a sidebar workspace (Home is unchanged terminal-first):
 | **Cyber Attacks** | live feed of breaches, exploits & incidents |
 | **Threat Actors** | hacker groups as dossier cards (motive, origin, threat rating) + a live global attack timeline with incident briefs |
 | **World Pulse** | Wikipedia most-read topics plus side-by-side news coverage across country editions — coverage volume, not tone or opinion |
-| **Company Footprint** | structured company intake (name, domains, aliases, country) correlated across Wikipedia/Wikidata, SEC filings, GitHub, RDAP registration, subdomains, DNS, exposed ports/CVEs, web archive history and hiring-derived tech signals — with explicit notes when a source fails and safe search pivots |
+| **Company Footprint** | structured company intake (name, domains, aliases, country) correlated across Wikipedia/Wikidata, SEC filings, GitHub, RDAP registration, subdomains, DNS, exposed ports/CVEs, web archive history and hiring-derived tech signals. A **Source checks** ledger shows what was actually verified; identity panels appear only when a source's name or official website matches the company, and manual search links are clearly separated at the bottom. LinkedIn has no keyless public API, so it is a manual lookup only — never presented as fetched data |
 | **Image Intelligence** | EXIF/GPS metadata, honest GPS-reference handling (no N/E guessing), and reverse-search launchers for human verification |
 
 ## 📸 Screenshots

@@ -9,8 +9,8 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter
 
 from ..company import (clean_terms, github_org, pivot_links, search_terms,
-                       slug_candidates, wayback_summary, wikidata_facts,
-                       wikipedia_profile)
+                       slug_candidates, verify_organisation, wayback_summary,
+                       wikidata_facts, wikipedia_profile)
 from ..core import registry
 from ..core.entities import AnalyzerResult, Entity, EntityType, _DOMAIN_RE
 from .models import FootprintRequest
@@ -211,9 +211,25 @@ async def _build_footprint(target: str = "", name: str = "", domains=None,
         "github": None,
         "archive": None,
         "pivots": [],
+        "manual_lookups": [],
         "errors": [],
     }
     succeeded = 0
+
+    # A transparent ledger of what actually happened. The UI uses this to show
+    # "checked, no verified match" instead of silently omitting a source, and
+    # to keep manual search links completely separate from discovered data.
+    _sources = ("jobs", "sec_edgar", "wikipedia", "wikidata", "github",
+                "linkedin", "wayback", "rdap", "crtsh", "dns", "http_probe",
+                "ip_geo", "shodan_internetdb")
+    out["source_checks"] = {s: {"status": "not_run", "detail": ""} for s in _sources}
+    out["source_checks"]["linkedin"] = {
+        "status": "manual",
+        "detail": "No keyless public API — manual search link only; no LinkedIn data was fetched.",
+    }
+
+    def _check(source: str, status: str, detail: str = "") -> None:
+        out["source_checks"][source] = {"status": status, "detail": str(detail)[:240]}
 
     def _record(result, err) -> None:
         nonlocal succeeded
@@ -240,6 +256,7 @@ async def _build_footprint(target: str = "", name: str = "", domains=None,
         return _finish()
 
     out["pivots"] = pivot_links(terms, domains, company_name)
+    out["manual_lookups"] = out["pivots"]
 
     # Job postings work for a company name or a domain-derived ATS slug.
     seed = Entity.make(EntityType.DOMAIN if domains else EntityType.COMPANY,
@@ -258,6 +275,11 @@ async def _build_footprint(target: str = "", name: str = "", domains=None,
             "skills": job_data.get("skills", []),
             "postings": (job_data.get("postings") or [])[:20],
         }
+        _check("jobs", "found",
+               f"{job_data.get('count', 0)} live posts via {job_data.get('source')} "
+               f"(board {job_data.get('slug')})")
+    else:
+        _check("jobs", "unavailable" if jerr else "not_found", jerr or "No public ATS board found")
 
     # Public filings confirm the legal entity, CIK and ticker for US companies.
     for term in terms[:3]:
@@ -267,27 +289,77 @@ async def _build_footprint(target: str = "", name: str = "", domains=None,
         _record(sr, serr)
         if sr and sr.findings and not out["filings"]:
             out["filings"] = sr.findings[0].data
+    if out["filings"]:
+        f = out["filings"]
+        _check("sec_edgar", "verified",
+               f"{(f.get('filers') or [])[:2]} · CIK {(f.get('ciks') or [])[:1]}")
+    else:
+        _check("sec_edgar", "not_found", "No filing naming this company was found")
 
     # Richer identity sources are opt-in because they add several HTTP calls.
     if deep:
         profile, perr = await wikipedia_profile(terms, country, domains, company_name)
         _record_data("wikipedia", profile, perr)
-        out["profile"] = profile
+        facts = None
         if profile and profile.get("wikidata_id"):
             facts, ferr = await wikidata_facts(profile["wikidata_id"])
             _record_data("wikidata", facts, ferr)
             if facts:
-                out["profile"]["facts"] = facts.get("facts", {})
-                out["profile"]["wikidata_url"] = facts.get("url")
+                profile["facts"] = facts.get("facts", {})
+                profile["wikidata_url"] = facts.get("url")
+                _check("wikidata", "verified",
+                       f"{facts.get('label')} · {len(facts.get('facts') or {})} attributes")
+            else:
+                _check("wikidata", "unavailable" if ferr else "not_found",
+                       ferr or "No linked Wikidata entity")
+        else:
+            _check("wikidata", "not_run", "No Wikipedia identity to resolve")
 
-        org, oerr = await github_org(slug_candidates(company_name, domains))
-        _record_data("github", org, oerr)
-        out["github"] = org
+        if profile:
+            # Only a cross-checked article becomes a data panel. A similar name
+            # alone is never enough to claim it describes this company.
+            verified, reason = verify_organisation(profile, company_name, domains)
+            profile["verified"] = verified
+            profile["match"] = reason
+            if verified:
+                out["profile"] = profile
+                _check("wikipedia", "verified", reason)
+            else:
+                out["profile"] = None
+                _check("wikipedia", "unverified",
+                       f"{profile.get('title')}: {reason}")
+                _add_error(out["errors"],
+                           f"wikipedia: discarded {profile.get('title')!r} — {reason}")
+        else:
+            _check("wikipedia", "unavailable" if perr else "not_found",
+                   perr or "No matching Wikipedia article")
+
+        org, oerr = await github_org(slug_candidates(company_name, domains),
+                                     company_name, domains)
+        if org:
+            verified = org.get("verified")
+            reason = org.get("match") or ""
+            if verified is None:
+                verified, reason = verify_organisation(org, company_name, domains)
+            if verified:
+                org["verified"] = True
+                org["match"] = reason
+                out["github"] = org
+                _check("github", "verified", reason)
+            else:
+                _check("github", "unverified", reason)
+                _add_error(out["errors"], f"github: no organisation verified — {reason}")
+        else:
+            _check("github", "not_found", oerr or "No matching public GitHub organisation")
 
         if domains:
             archive, aerr = await wayback_summary(domains)
             _record_data("wayback", archive, aerr)
             out["archive"] = archive
+            _check("wayback", "found" if archive and archive.get("count") else
+                   ("unavailable" if aerr else "not_found"),
+                   aerr or (f"{archive.get('count')} snapshots" if archive else
+                            "No archived pages"))
 
     if not domains:
         out["note"] = "Add a domain (e.g. acme.com) to map subdomains, registration and services."
@@ -297,12 +369,17 @@ async def _build_footprint(target: str = "", name: str = "", domains=None,
     dent = Entity.make(EntityType.DOMAIN, domain)
 
     # Registration data: registrar, dates, status and published contacts.
+    rerr = None
     for d in domains[:3]:
         rr, rerr = await _run_safe(_analyzer("rdap"),
                                    Entity.make(EntityType.DOMAIN, d), f"rdap ({d})")
         _record(rr, rerr)
         if rr and rr.findings:
             out["registration"][d] = rr.findings[0].data
+    _check("rdap", "found" if out["registration"] else
+           ("unavailable" if rerr else "not_found"),
+           rerr or (", ".join(out["registration"]) if out["registration"] else
+                    "No public registration record"))
 
     (crt, crterr), (dnsr, dnserr), (tech, techerr) = await asyncio.gather(
         _run_safe(_analyzer("crtsh"), dent, "crtsh"),
@@ -322,6 +399,12 @@ async def _build_footprint(target: str = "", name: str = "", domains=None,
         out["dns"] = dnsr.findings[0].data
     if tech and tech.findings:
         out["tech"] = {"title": tech.findings[0].title, **tech.findings[0].data}
+    _check("crtsh", "found" if subs else ("unavailable" if crterr else "not_found"),
+           crterr or (f"{len(subs)} certificate names" if subs else "No certificate names"))
+    _check("dns", "found" if out["dns"] else ("unavailable" if dnserr else "not_found"),
+           dnserr or ("DNS records returned" if out["dns"] else "No DNS records"))
+    _check("http_probe", "found" if out["tech"] else ("unavailable" if techerr else "not_found"),
+           techerr or (out["tech"].get("title") if out["tech"] else "No homepage response"))
 
     # Resolve the apex + a capped set of subdomains, then enrich unique IPs with
     # geolocation (for the map) and Shodan InternetDB (exposed ports/CVEs).
@@ -362,6 +445,12 @@ async def _build_footprint(target: str = "", name: str = "", domains=None,
         }
 
     out["services"] = await asyncio.gather(*[_ip_info(ip) for ip in uniq])
+    with_geo = any(any((s.get("geo") or {}).values()) for s in out["services"])
+    with_ports = any((s.get("ports") or s.get("vulns")) for s in out["services"])
+    _check("ip_geo", "found" if with_geo else "not_found",
+           "IP location data" if with_geo else "No IP location data returned")
+    _check("shodan_internetdb", "found" if with_ports else "not_found",
+           "Ports/CVEs returned" if with_ports else "No exposed ports or CVEs reported")
     out["risk"] = _footprint_risk(out["services"], out["errors"], mapped=len(uniq))
     return _finish()
 
