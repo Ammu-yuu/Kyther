@@ -168,6 +168,9 @@ class ScanResult:
     # Directed pivot edges: (parent_key, child_key, relation).
     edges: list[tuple[str, str, str]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    # Per-analyzer outcome, so a scan can say what was checked even when a
+    # source returned nothing. Keyed by analyzer name; see orchestrator.
+    checks: dict[str, dict] = field(default_factory=dict)
 
     def add_entity(self, entity: Entity) -> bool:
         """Register an entity. Returns True if it was newly seen."""

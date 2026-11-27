@@ -24,6 +24,8 @@ _CATEGORY = {
     "phone_intel": "identity",
     "email_basic": "identity",
     "hibp": "breaches",
+    "xposedornot": "breaches",
+    "leakcheck": "breaches",
     "search_dorks": "leads",
     "dns": "infrastructure",
     "rdap": "infrastructure",
@@ -45,6 +47,8 @@ _CONFIDENCE = {
     "shodan_internetdb": Confidence.CONFIRMED,
     "phone_intel": Confidence.CONFIRMED,     # offline libphonenumber
     "hibp": Confidence.CONFIRMED,            # authoritative breach source
+    "xposedornot": Confidence.CONFIRMED,     # public breach index, keyless
+    "leakcheck": Confidence.CONFIRMED,       # public breach index, keyless
     "github_emails": Confidence.CONFIRMED,   # read straight from commit metadata
     "email_basic": Confidence.CONFIRMED,     # a Gravatar hit is a real account
     "profile_enrich": Confidence.CONFIRMED,  # structured API profile data
@@ -252,6 +256,93 @@ def _build_graph(seed: Entity, result) -> dict:
                 links.append({"source": f.entity.key, "target": sid, "rel": "registered"})
 
     return {"nodes": list(nodes.values()), "links": links}
+
+
+# Per-seed-type ledger: what a person can reasonably expect an identity scan to
+# check. A source is listed even when it returned nothing, so "no hits" is never
+# confused with "nothing was queried". (label, analyzers, empty-detail, env key)
+_IDENTITY_CHECKS: dict[str, list[tuple]] = {
+    "email": [
+        ("Gravatar profile", ("email_basic",), "No public Gravatar profile", None),
+        ("Public breach index (XposedOrNot)", ("xposedornot",),
+         "No breach record in this index", None),
+        ("Breach lookup (LeakCheck)", ("leakcheck",),
+         "No breach record in this index", None),
+        ("Account handles (WhatsMyName + Sherlock)", ("username", "sherlock"),
+         "No public accounts for this email's local part", None),
+        ("Public profile details", ("profile_enrich", "reddit"),
+         "No public profile details for this handle", None),
+        ("Public commit emails", ("github_emails",),
+         "No matching public commit emails", None),
+        ("Domain records", ("dns", "rdap", "crtsh", "http_probe"),
+         "No public domain records returned", None),
+        ("Registered-site check (Holehe)", ("holehe",),
+         "Opt-in account enumeration — set OSINT_ENABLE_HOLEHE=1", "OSINT_ENABLE_HOLEHE"),
+        ("Breach lookup (HIBP)", ("hibp",),
+         "Keyed source — set HIBP_API_KEY", "HIBP_API_KEY"),
+        ("Email reputation (EmailRep)", ("emailrep",),
+         "Keyed source — set EMAILREP_API_KEY", "EMAILREP_API_KEY"),
+    ],
+    "username": [
+        ("Account handles (WhatsMyName + Sherlock)", ("username", "sherlock"),
+         "No public accounts for this handle", None),
+        ("Public profile details", ("profile_enrich", "reddit"),
+         "No public profile details", None),
+        ("Public commit emails", ("github_emails",),
+         "No matching public commit emails", None),
+        ("Breach lookup (LeakCheck)", ("leakcheck",),
+         "No breach record in this index", None),
+    ],
+    "phone": [
+        ("Offline phone intelligence", ("phone_intel",),
+         "Number could not be parsed", None),
+    ],
+}
+
+
+def build_source_checks(seed: dict, checks: dict,
+                        errors: list[str] | None = None) -> dict:
+    """Turn per-analyzer outcomes into an honest, human-readable source ledger."""
+    specs = _IDENTITY_CHECKS.get(str(seed.get("type")))
+    if not specs:
+        return {}
+
+    empty_note: dict[str, str] = {}
+    if seed.get("type") == "email":
+        from ..analyzers.email import _FREE_MAIL  # local import: keeps builders light
+        domain = str(seed.get("value", "")).partition("@")[2].lower()
+        if domain in _FREE_MAIL:
+            empty_note["Domain records"] = (
+                "Free-mail provider — company infrastructure skipped on purpose"
+            )
+
+    ledger: dict[str, dict] = {}
+    for label, analyzers, miss, env_key in specs:
+        rows = [checks[name] for name in analyzers if name in checks]
+        found = [r for r in rows if r.get("status") == "found"]
+        unavailable = [r for r in rows if r.get("status") == "unavailable"]
+        if found:
+            status = "found"
+            detail = " · ".join(dict.fromkeys(str(r.get("detail", "")) for r in found))
+        elif unavailable:
+            status = "unavailable"
+            detail = " · ".join(dict.fromkeys(str(r.get("detail", "")) for r in unavailable))
+        elif rows:
+            status = "not_found"
+            detail = empty_note.get(label, miss)
+        elif env_key:
+            status = "manual"
+            detail = miss
+        else:
+            status = "not_run"
+            detail = empty_note.get(label, miss)
+
+        ledger[label] = {
+            "status": status,
+            "detail": detail,
+            "analyzers": list(analyzers),
+        }
+    return ledger
 
 
 def _finding_dict(f: Finding) -> dict:

@@ -8,7 +8,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![FastAPI](https://img.shields.io/badge/api-FastAPI-009688)
-![Analyzers](https://img.shields.io/badge/analyzers-19-bfa4e4)
+![Analyzers](https://img.shields.io/badge/analyzers-22-bfa4e4)
 ![Status](https://img.shields.io/badge/status-active-5fd88f)
 
 </div>
@@ -27,8 +27,8 @@ lookup — all behind a terminal-style console.
 
 ## ✦ Features
 
-- **Terminal console** — `search --username <x>` (or `--email`, `--domain`, `--ip`, `--phone`), with `help` and `clear`; results stream back as colored terminal output.
-- **19 analyzers, one engine** — username sweeps, profile enrichment, email discovery, breach checks, infra recon, phone intel, Reddit OSINT, and more — merged and deduplicated.
+- **Terminal console** — `search --username <x>` (or `--email`, `--domain`, `--ip`, `--phone`), with `help` and `clear`; results stream back as colored terminal output. Identity scans print a **Source checks** ledger, so “no hits” never means “nothing was queried”.
+- **22 analyzers, one engine** — username sweeps, profile enrichment, email discovery, keyless breach lookups, infra recon, phone intel, Reddit OSINT, and more — merged and deduplicated.
 - **Entity pivoting** — a discovered email is re-scanned, a domain expands to its IPs and ASNs, correlated into one result.
 - **Confidence-tagged findings** — every result is `confirmed` / `probable` / `possible`, so a status-code guess never masquerades as fact.
 - **Risk scoring** — a 0–100 exposure score with a `Low → Critical` tier and its top driving factors, weighted by sensitivity **and** confidence.
@@ -119,7 +119,7 @@ reverse proxy — it still has no user login.
 | Command | Does |
 |---|---|
 | `search --username <handle>` | sweep ~700 sites (WhatsMyName + Sherlock) + enrich + find emails |
-| `search --email <addr>` | Gravatar, GitHub pivot, breach checks, Holehe* |
+| `search --email <addr>` | Gravatar, keyless breach indexes (XposedOrNot + LeakCheck), GitHub pivot, Holehe* — plus a Source checks ledger |
 | `search --domain <host>` | DNS, RDAP, crt.sh, HTTP fingerprint, Shodan InternetDB |
 | `search --ip <addr>` | geolocation, RDAP, open ports / CVEs |
 | `search --phone <number>` | offline carrier / region / line-type intel |
@@ -144,13 +144,22 @@ python -m kyther.cli list                           # registered analyzers
 | Input | Analyzers |
 |-------|-----------|
 | **username** | WhatsMyName (719 sites) · Sherlock (413) · profile enrichment (GitHub/Keybase/Reddit/HN/Instagram) · GitHub-commit emails · **Reddit archives (keyless)** |
-| **email** | Gravatar · GitHub → email pivot · Holehe\* · HIBP\* · EmailRep\* |
+| **email** | Gravatar · **XposedOrNot (keyless breaches)** · **LeakCheck (keyless breaches)** · GitHub → email pivot · Holehe\* · HIBP\* · EmailRep\* |
+| **email / username** | **LeakCheck public breach lookup (keyless, 1 req/s)** |
 | **domain / IP** | DNS · RDAP · crt.sh · HTTP probe · Shodan InternetDB · IP geolocation · Hunter\* |
 | **phone** | offline `phonenumbers` intelligence |
 | **company** | SEC EDGAR full-text search |
 | **person** | investigative search links |
 
 `*` = needs a free key or an opt-in flag; **off by default**. Run `python -m kyther.cli list` to see each analyzer's status.
+
+The two new breach sources are keyless and on by default: XposedOrNot
+(`25/hour` per IP, open source) and LeakCheck (`1/second`, public endpoint).
+Both return breach names and data categories only — never passwords or leaked
+values — and results are cached for 15 minutes so repeated scans do not burn
+the shared quota. LeakCheck's terms request attribution, so breach results link
+back to [LeakCheck](https://leakcheck.io). Rate limits and outages appear in the
+Source checks ledger as `unavailable`, never as a clean “no breach found”.
 
 ## 🧠 How it works
 
@@ -174,9 +183,11 @@ findings ─► confidence tagging ─► dossier + timeline + graph ─► risk
 Kyther uses only **public, no-auth data** (or an optional bring-your-own key you
 supply). No auth bypass, no paywalled scraping, no captcha-solving. Account
 enumeration and email-registration checks are **opt-in**. Reddit data comes from
-public archives, not scraping logged-in sessions. Use it only against targets
-you're authorized to investigate — authorized security research, CTFs, and
-education.
+public archives, not scraping logged-in sessions. Email and username searches do
+send the identifier to the keyless breach services named above (and to the
+public profile/site checks already in Kyther) — treat every lookup as a
+third-party disclosure. Use it only against targets you're authorized to
+investigate — authorized security research, CTFs, and education.
 
 ## Design system
 

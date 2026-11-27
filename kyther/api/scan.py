@@ -14,6 +14,7 @@ from ..core.orchestrator import scan
 from ..report import Report
 from .builders import (
     _build_dossier, _build_graph, _build_risk, _build_timeline, _finding_dict,
+    build_source_checks,
 )
 from .models import ScanRequest
 
@@ -58,6 +59,7 @@ async def _perform_scan(req: ScanRequest) -> dict:
         "timeline": _build_timeline(result.findings),
         "dossier": dossier,
         "graph": _build_graph(seed, result),
+        "source_checks": build_source_checks(seed_out, result.checks, result.errors),
         "errors": result.errors,
     }
 

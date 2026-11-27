@@ -1,15 +1,16 @@
 // Home view: scanning, self-audit, result rendering and PDF reports.
 (function(K){
 "use strict";
-const {API, $, cmdIn, state, store, TYPES, esc, put, addLog, renderStats,
-       requestJson, requestBlob, setButtonBusy, isAbort} = K;
+const {API, $, cmdIn, state, store, TYPES, esc, safeHref, put, addLog,
+       renderStats, requestJson, requestBlob, setButtonBusy, isAbort} = K;
 
 // Home view: scanning, self-audit, result rendering and PDF reports.
 async function runSearch(type,value){
   if(state.busy) return; value=(value||"").trim(); if(!value) return;
   state.busy=true; $("#qgo").disabled=true; cmdIn.disabled=true;
   put(`<span class="cmd"><span class="match">&gt;</span> search --${esc(type)} ${esc(value)}</span>`);
-  const running=put(`<span class="info">running scan<span class="blink">_</span></span>`);
+  const hint=(type==="email"||type==="username")?" — account sweeps can take ~1 min":"";
+  const running=put(`<span class="info">running scan${hint}<span class="blink">_</span></span>`);
   const t0=performance.now();
   try{
     const d=await requestJson("scan",API+"/api/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target:value,type,depth:1})});
@@ -101,9 +102,24 @@ function renderResult(d,secs){
   const seed=d.seed;
   const cat=c=>d.findings.filter(f=>f.category===c);
   const accounts=dedupe(cat("accounts").flatMap(f=>f.data.profiles||[]));
-  const dos=d.dossier||{}; const breaches=cat("breaches").reduce((n,f)=>n+((f.data.breaches||[]).length),0);
+  // XposedOrNot returns `breaches`; LeakCheck returns `sources`. Both are named
+  // breach lists, so count and display either shape.
+  const dos=d.dossier||{};
+  const breaches=cat("breaches").reduce((n,f)=>n+((f.data.breaches||f.data.sources||[]).length),0);
 
   put(`<span class="ok">[ok]</span> <span class="info">scan complete —</span> <span class="val">${esc(seed.value)}</span> <span class="info">(${esc(seed.type)}) [${secs}s]</span>`);
+
+  // Identity scans now report what was actually queried, so an empty result is
+  // never mistaken for "nothing was checked" (the same ledger as Footprint).
+  const checks=d.source_checks||{}, checkKeys=Object.keys(checks);
+  if(checkKeys.length){
+    put(`<span class="plabel">SOURCE CHECKS — what was actually checked</span>`);
+    put(`<span class="info">“not found” = queried, no public match; “manual” = needs a key or a separate lookup.</span>`);
+    const CS={found:"st-good",unavailable:"st-bad",manual:"st-manual","not_found":"st-muted",not_run:"st-muted"};
+    for(const [name,c] of Object.entries(checks)){
+      put(`<div class="fp-check"><span class="fp-check-name">${esc(name)}</span><span class="fp-status ${CS[c.status]||"st-muted"}">${esc(String(c.status||"").replace("_"," "))}</span><span class="fp-check-detail">${esc(c.detail||"")}</span></div>`);
+    }
+  }
 
   const risk=dos.risk;
   if(risk){
@@ -155,12 +171,22 @@ function renderResult(d,secs){
   cat("infrastructure").slice(0,4).forEach(f=>put(`<span class="plus">[+]</span> <span class="kv">${esc(f.analyzer)}:</span> <span class="val">${esc(f.title)}</span>`));
   const tl=(d.timeline||[]).length; if(tl) put(`<span class="plus">[+]</span> <span class="kv">timeline:</span> <span class="val">${tl} dated events</span>`);
   put(`<span class="${breaches?'err':'info'}">[${breaches?'!':'i'}] breaches: ${breaches}</span>`);
-  if(!accounts.length && !dos.primary_name && !(dos.emails||[]).length && !cat("infrastructure").length) put(`<span class="info">    no results — try a different value or type.</span>`);
+  cat("breaches").slice(0,3).forEach(f=>{
+    const src=f.data.source||f.analyzer;
+    const names=(f.data.breaches||f.data.sources||[]).map(b=>typeof b==="string"?b:(b.name||"")).filter(Boolean);
+    const shown=names.slice(0,10).join(", ");
+    const more=names.length>10?` (+${names.length-10} more)`:"";
+    // LeakCheck's terms ask for attribution when its public API is used.
+    const attr=src==="LeakCheck"?` · <a class="match" href="https://leakcheck.io" target="_blank" rel="noopener noreferrer">Powered by LeakCheck</a>`:"";
+    if(shown) put(`    <span class="kv">${esc(src)}:</span> <span class="info">${esc(shown)}${esc(more)}</span>${attr}`);
+  });
+  if(!d.findings.length && !accounts.length && !dos.primary_name && !(dos.emails||[]).length && !cat("infrastructure").length)
+    put(`<span class="info">    ${checkKeys.length?"no public data matched — see Source checks above for what was queried.":"no results — try a different value or type."}</span>`);
 }
 
 function updateFromResult(d,type,value){
   const n=dedupe(d.findings.filter(f=>f.category==="accounts").flatMap(f=>f.data.profiles||[])).length;
-  const breaches=d.findings.filter(f=>f.category==="breaches").reduce((a,f)=>a+((f.data.breaches||[]).length),0);
+  const breaches=d.findings.filter(f=>f.category==="breaches").reduce((a,f)=>a+((f.data.breaches||f.data.sources||[]).length),0);
   const hit=n>0||!!(d.dossier&&d.dossier.primary_name)||d.findings.length>0;
   state.stats.scanned++; if(hit)state.stats.hits++; state.stats.found+=n;
   state.stats.risk = (d.dossier && d.dossier.risk) || state.stats.risk || null;

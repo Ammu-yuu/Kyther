@@ -117,7 +117,7 @@ function safeHref(u){
 }
 function put(html,cls){ const d=document.createElement("div"); d.className="line "+(cls||""); d.innerHTML=html; term.appendChild(d); term.scrollTop=term.scrollHeight; return d; }
 function banner(){
-  put('<span class="ok">Kyther</span> <span class="info">v0.2 — 20 analyzers online</span>');
+  put('<span class="ok">Kyther</span> <span class="info">v0.2 — 22 analyzers online</span>');
   put('<span class="info">type a command, or use Quick Search below. `help` for options.</span>');
   put('&nbsp;');
 }

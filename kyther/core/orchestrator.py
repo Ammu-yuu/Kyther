@@ -19,19 +19,42 @@ from .entities import Entity, ScanResult
 ProgressHook = Callable[[str, Entity], None]
 
 
+# A source that found something on any entity wins over a later empty result.
+_CHECK_RANK = {"unavailable": 1, "not_found": 2, "found": 3}
+
+
+def _record_check(result: ScanResult, name: str, status: str,
+                  detail: str, entity: Entity) -> None:
+    previous = result.checks.get(name)
+    if previous and _CHECK_RANK.get(previous["status"], 0) >= _CHECK_RANK.get(status, 0):
+        return
+    result.checks[name] = {
+        "status": status,
+        "detail": detail,
+        "entity": entity.key,
+    }
+
+
 async def _run_one(analyzer: Analyzer, entity: Entity, result: ScanResult) -> list[Entity]:
     """Run a single analyzer against a single entity, folding output into result."""
     try:
         ar = await asyncio.wait_for(analyzer.run(entity), timeout=analyzer.timeout)
     except asyncio.TimeoutError:
         result.errors.append(f"{analyzer.name} timed out on {entity}")
+        _record_check(result, analyzer.name, "unavailable", "timed out", entity)
         return []
     except Exception as exc:  # a bad plugin must not sink the whole scan
         result.errors.append(f"{analyzer.name} failed on {entity}: {exc!r}")
+        _record_check(result, analyzer.name, "unavailable", repr(exc), entity)
         return []
 
     if ar.error:
         result.errors.append(f"{analyzer.name} on {entity}: {ar.error}")
+        _record_check(result, analyzer.name, "unavailable", ar.error, entity)
+    elif ar.findings:
+        _record_check(result, analyzer.name, "found", ar.findings[0].title, entity)
+    else:
+        _record_check(result, analyzer.name, "not_found", "no match returned", entity)
     result.findings.extend(ar.findings)
 
     fresh: list[Entity] = []

@@ -4,6 +4,7 @@ Importing this package registers every analyzer via its @register decorator.
 Add a new source by dropping a module here and listing it below.
 """
 from . import (  # noqa: F401
+    breaches,
     crtsh,
     dns,
     email,
